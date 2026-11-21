@@ -1,0 +1,3011 @@
+[
+  {
+    "code": 1,
+    "id": "hw-edge",
+    "category": "1",
+    "title": "Thermal block non-uniformity (edge effect)",
+    "kind": "native",
+    "editableParameters": [
+      {
+        "name": "Edge temperature deficit (C)",
+        "default": 7,
+        "min": 0,
+        "max": 15,
+        "step": 0.5
+      },
+      {
+        "name": "",
+        "default": 0,
+        "min": 0,
+        "max": 0,
+        "step": 0
+      },
+      {
+        "name": "",
+        "default": 0,
+        "min": 0,
+        "max": 0,
+        "step": 0
+      },
+      {
+        "name": "Affected-well scope code",
+        "default": 0,
+        "min": 0,
+        "max": 6,
+        "step": 1
+      },
+      {
+        "name": "Well mask (0=scope, bits 1-14)",
+        "default": 0,
+        "min": 0,
+        "max": 16383,
+        "step": 1
+      },
+      {
+        "name": "Scenario seed offset",
+        "default": 0,
+        "min": -100000,
+        "max": 100000,
+        "step": 1
+      }
+    ],
+    "nativeDefaultScope": 4,
+    "nativeAvailable": true,
+    "nativeScopeNote": "Sparse 384-position plate; generic DNA assay, FAM plus YY reference/empty channel. Original assay-specific outcomes are not claimed.",
+    "legacyMechanism": "Edge wells run 7 °C colder at denaturation (88 °C instead of 95 °C, no offset at annealing). Even this large deviation delays the edge wells by only about 0.2 cycle: in the model, denaturation of a 70–120 bp amplicon is robust, so practical edge effects come mainly from evaporation (see hu-seal).",
+    "legacyArmable": true,
+    "nativeExecutable": true,
+    "implementation": "fortran/native_model.f90 and fortran/native_scenarios.f90",
+    "workflow": "Reduced generic probe assay with FAM/YY; legacy assay-specific SOP outcomes are not reproduced."
+  },
+  {
+    "code": 2,
+    "id": "hw-peltier",
+    "category": "1",
+    "title": "Peltier element degradation (zone 1 pumps 70 % of nominal)",
+    "kind": "native",
+    "editableParameters": [
+      {
+        "name": "Zone-1 pump fraction",
+        "default": 0.7,
+        "min": 0.1,
+        "max": 1,
+        "step": 0.05
+      },
+      {
+        "name": "",
+        "default": 0,
+        "min": 0,
+        "max": 0,
+        "step": 0
+      },
+      {
+        "name": "",
+        "default": 0,
+        "min": 0,
+        "max": 0,
+        "step": 0
+      },
+      {
+        "name": "",
+        "default": 0,
+        "min": 0,
+        "max": 0,
+        "step": 0
+      },
+      {
+        "name": "",
+        "default": 0,
+        "min": 0,
+        "max": 0,
+        "step": 0
+      },
+      {
+        "name": "Scenario seed offset",
+        "default": 0,
+        "min": -100000,
+        "max": 100000,
+        "step": 1
+      }
+    ],
+    "nativeDefaultScope": 1,
+    "nativeAvailable": true,
+    "nativeScopeNote": "Sparse 384-position plate; generic DNA assay, FAM plus YY reference/empty channel. Original assay-specific outcomes are not claimed.",
+    "legacyMechanism": "The zone-1 module converts only part of its drive into heat flow: ramps slow down, zone 1 lags zone 2 and the firmware stops the run with F_ZONE_MISMATCH.",
+    "legacyArmable": true,
+    "nativeExecutable": true,
+    "implementation": "fortran/native_model.f90 and fortran/native_scenarios.f90",
+    "workflow": "Reduced generic probe assay with FAM/YY; legacy assay-specific SOP outcomes are not reproduced."
+  },
+  {
+    "code": 3,
+    "id": "hw-lid",
+    "category": "1",
+    "title": "Heated lid malfunction (lid at 60 °C, condensation)",
+    "kind": "native+injected",
+    "editableParameters": [
+      {
+        "name": "Lid target (C)",
+        "default": 60,
+        "min": 25,
+        "max": 110,
+        "step": 5
+      },
+      {
+        "name": "Condensation loss / cycle",
+        "default": 0.006,
+        "min": 0,
+        "max": 0.05,
+        "step": 0.001
+      },
+      {
+        "name": "Condensation starts at cycle",
+        "default": 20,
+        "min": 1,
+        "max": 44,
+        "step": 1
+      },
+      {
+        "name": "",
+        "default": 0,
+        "min": 0,
+        "max": 0,
+        "step": 0
+      },
+      {
+        "name": "",
+        "default": 0,
+        "min": 0,
+        "max": 0,
+        "step": 0
+      },
+      {
+        "name": "Scenario seed offset",
+        "default": 0,
+        "min": -100000,
+        "max": 100000,
+        "step": 1
+      }
+    ],
+    "nativeDefaultScope": 1,
+    "nativeAvailable": true,
+    "nativeScopeNote": "Sparse 384-position plate; generic DNA assay, FAM plus YY reference/empty channel. Original assay-specific outcomes are not claimed.",
+    "legacyMechanism": "The lid stays far below the block: water condenses under the seal, wells concentrate and the reading through droplets falls and scatters.",
+    "legacyArmable": true,
+    "nativeExecutable": true,
+    "implementation": "fortran/native_model.f90 and fortran/native_scenarios.f90",
+    "workflow": "Reduced generic probe assay with FAM/YY; legacy assay-specific SOP outcomes are not reproduced."
+  },
+  {
+    "code": 4,
+    "id": "hw-optics-misaligned",
+    "category": "1",
+    "title": "Optical misalignment (vignetting across the plate)",
+    "kind": "native",
+    "editableParameters": [
+      {
+        "name": "Far-column light transmission",
+        "default": 0.35,
+        "min": 0.05,
+        "max": 1,
+        "step": 0.05
+      },
+      {
+        "name": "",
+        "default": 0,
+        "min": 0,
+        "max": 0,
+        "step": 0
+      },
+      {
+        "name": "",
+        "default": 0,
+        "min": 0,
+        "max": 0,
+        "step": 0
+      },
+      {
+        "name": "Affected-well scope code",
+        "default": 0,
+        "min": 0,
+        "max": 6,
+        "step": 1
+      },
+      {
+        "name": "Well mask (0=scope, bits 1-14)",
+        "default": 0,
+        "min": 0,
+        "max": 16383,
+        "step": 1
+      },
+      {
+        "name": "Scenario seed offset",
+        "default": 0,
+        "min": -100000,
+        "max": 100000,
+        "step": 1
+      }
+    ],
+    "nativeDefaultScope": 1,
+    "nativeAvailable": true,
+    "nativeScopeNote": "Sparse 384-position plate; generic DNA assay, FAM plus YY reference/empty channel. Original assay-specific outcomes are not claimed.",
+    "legacyMechanism": "The light path is shifted: collected light falls linearly from 100 % at column 1 to 35 % at column 24.",
+    "legacyArmable": true,
+    "nativeExecutable": true,
+    "implementation": "fortran/native_model.f90 and fortran/native_scenarios.f90",
+    "workflow": "Reduced generic probe assay with FAM/YY; legacy assay-specific SOP outcomes are not reproduced."
+  },
+  {
+    "code": 5,
+    "id": "hw-crosstalk",
+    "category": "1",
+    "title": "Optical crosstalk (filter shifted: 30 % FAM into the YY channel)",
+    "kind": "injected",
+    "editableParameters": [
+      {
+        "name": "Extra FAM to YY leakage",
+        "default": 0.3,
+        "min": 0,
+        "max": 1,
+        "step": 0.05
+      },
+      {
+        "name": "",
+        "default": 0,
+        "min": 0,
+        "max": 0,
+        "step": 0
+      },
+      {
+        "name": "",
+        "default": 0,
+        "min": 0,
+        "max": 0,
+        "step": 0
+      },
+      {
+        "name": "Affected-well scope code",
+        "default": 0,
+        "min": 0,
+        "max": 6,
+        "step": 1
+      },
+      {
+        "name": "Well mask (0=scope, bits 1-14)",
+        "default": 0,
+        "min": 0,
+        "max": 16383,
+        "step": 1
+      },
+      {
+        "name": "Scenario seed offset",
+        "default": 0,
+        "min": -100000,
+        "max": 100000,
+        "step": 1
+      }
+    ],
+    "nativeDefaultScope": 1,
+    "nativeAvailable": true,
+    "nativeScopeNote": "Sparse 384-position plate; generic DNA assay, FAM plus YY reference/empty channel. Original assay-specific outcomes are not claimed.",
+    "legacyMechanism": "A shifted emission filter lets FAM light into the second channel. In the P-35S/T-nos duplex, maize MON810 (P-35S without T-nos) shows a false T-nos signal.",
+    "legacyArmable": true,
+    "nativeExecutable": true,
+    "implementation": "fortran/native_model.f90 and fortran/native_scenarios.f90",
+    "workflow": "Reduced generic probe assay with FAM/YY; legacy assay-specific SOP outcomes are not reproduced."
+  },
+  {
+    "code": 6,
+    "id": "hw-led-aged",
+    "category": "1",
+    "title": "Light source degradation (LED at 50 %)",
+    "kind": "native",
+    "editableParameters": [
+      {
+        "name": "LED output fraction",
+        "default": 0.5,
+        "min": 0.01,
+        "max": 1.5,
+        "step": 0.05
+      },
+      {
+        "name": "",
+        "default": 0,
+        "min": 0,
+        "max": 0,
+        "step": 0
+      },
+      {
+        "name": "",
+        "default": 0,
+        "min": 0,
+        "max": 0,
+        "step": 0
+      },
+      {
+        "name": "Affected-well scope code",
+        "default": 0,
+        "min": 0,
+        "max": 6,
+        "step": 1
+      },
+      {
+        "name": "Well mask (0=scope, bits 1-14)",
+        "default": 0,
+        "min": 0,
+        "max": 16383,
+        "step": 1
+      },
+      {
+        "name": "Scenario seed offset",
+        "default": 0,
+        "min": -100000,
+        "max": 100000,
+        "step": 1
+      }
+    ],
+    "nativeDefaultScope": 1,
+    "nativeAvailable": true,
+    "nativeScopeNote": "Sparse 384-position plate; generic DNA assay, FAM plus YY reference/empty channel. Original assay-specific outcomes are not claimed.",
+    "legacyMechanism": "The excitation LED delivers half its light; every signal and the reference photodiode halve, noise stays.",
+    "legacyArmable": true,
+    "nativeExecutable": true,
+    "implementation": "fortran/native_model.f90 and fortran/native_scenarios.f90",
+    "workflow": "Reduced generic probe assay with FAM/YY; legacy assay-specific SOP outcomes are not reproduced."
+  },
+  {
+    "code": 7,
+    "id": "hw-led-drift",
+    "category": "1",
+    "title": "Light source drifting within the run (end of life)",
+    "kind": "native",
+    "editableParameters": [
+      {
+        "name": "End-of-run LED fraction",
+        "default": 0.45,
+        "min": 0.01,
+        "max": 1,
+        "step": 0.05
+      },
+      {
+        "name": "Initial LED fraction",
+        "default": 1,
+        "min": 0.1,
+        "max": 1.5,
+        "step": 0.1
+      },
+      {
+        "name": "Drift starts at cycle",
+        "default": 1,
+        "min": 1,
+        "max": 40,
+        "step": 1
+      },
+      {
+        "name": "Affected-well scope code",
+        "default": 0,
+        "min": 0,
+        "max": 6,
+        "step": 1
+      },
+      {
+        "name": "Well mask (0=scope, bits 1-14)",
+        "default": 0,
+        "min": 0,
+        "max": 16383,
+        "step": 1
+      },
+      {
+        "name": "Scenario seed offset",
+        "default": 0,
+        "min": -100000,
+        "max": 100000,
+        "step": 1
+      }
+    ],
+    "nativeDefaultScope": 1,
+    "nativeAvailable": true,
+    "nativeScopeNote": "Sparse 384-position plate; generic DNA assay, FAM plus YY reference/empty channel. Original assay-specific outcomes are not claimed.",
+    "legacyMechanism": "LED output falls by 25 % during cycling (thermal ageing).",
+    "legacyArmable": true,
+    "nativeExecutable": true,
+    "implementation": "fortran/native_model.f90 and fortran/native_scenarios.f90",
+    "workflow": "Reduced generic probe assay with FAM/YY; legacy assay-specific SOP outcomes are not reproduced."
+  },
+  {
+    "code": 8,
+    "id": "hw-saturation",
+    "category": "1",
+    "title": "Detector saturation (gain set too high)",
+    "kind": "native",
+    "editableParameters": [
+      {
+        "name": "Detector gain",
+        "default": 5,
+        "min": 1,
+        "max": 20,
+        "step": 0.5
+      },
+      {
+        "name": "ADC clipping ceiling (counts)",
+        "default": 4095,
+        "min": 500,
+        "max": 65535,
+        "step": 250
+      },
+      {
+        "name": "",
+        "default": 0,
+        "min": 0,
+        "max": 0,
+        "step": 0
+      },
+      {
+        "name": "Affected-well scope code",
+        "default": 0,
+        "min": 0,
+        "max": 6,
+        "step": 1
+      },
+      {
+        "name": "Well mask (0=scope, bits 1-14)",
+        "default": 0,
+        "min": 0,
+        "max": 16383,
+        "step": 1
+      },
+      {
+        "name": "Scenario seed offset",
+        "default": 0,
+        "min": -100000,
+        "max": 100000,
+        "step": 1
+      }
+    ],
+    "nativeDefaultScope": 1,
+    "nativeAvailable": true,
+    "nativeScopeNote": "Sparse 384-position plate; generic DNA assay, FAM plus YY reference/empty channel. Original assay-specific outcomes are not claimed.",
+    "legacyMechanism": "Camera gain ×6: bright wells clip at full scale (4095 counts), plateaus flatten.",
+    "legacyArmable": true,
+    "nativeExecutable": true,
+    "implementation": "fortran/native_model.f90 and fortran/native_scenarios.f90",
+    "workflow": "Reduced generic probe assay with FAM/YY; legacy assay-specific SOP outcomes are not reproduced."
+  },
+  {
+    "code": 9,
+    "id": "hw-noise",
+    "category": "1",
+    "title": "Detector noise (camera read scatter ×8)",
+    "kind": "native",
+    "editableParameters": [
+      {
+        "name": "Read noise multiplier",
+        "default": 8,
+        "min": 1,
+        "max": 50,
+        "step": 1
+      },
+      {
+        "name": "",
+        "default": 0,
+        "min": 0,
+        "max": 0,
+        "step": 0
+      },
+      {
+        "name": "",
+        "default": 0,
+        "min": 0,
+        "max": 0,
+        "step": 0
+      },
+      {
+        "name": "Affected-well scope code",
+        "default": 0,
+        "min": 0,
+        "max": 6,
+        "step": 1
+      },
+      {
+        "name": "Well mask (0=scope, bits 1-14)",
+        "default": 0,
+        "min": 0,
+        "max": 16383,
+        "step": 1
+      },
+      {
+        "name": "Scenario seed offset",
+        "default": 0,
+        "min": -100000,
+        "max": 100000,
+        "step": 1
+      }
+    ],
+    "nativeDefaultScope": 1,
+    "nativeAvailable": true,
+    "nativeScopeNote": "Sparse 384-position plate; generic DNA assay, FAM plus YY reference/empty channel. Original assay-specific outcomes are not claimed.",
+    "legacyMechanism": "A failing camera adds read scatter to every exposure.",
+    "legacyArmable": true,
+    "nativeExecutable": true,
+    "implementation": "fortran/native_model.f90 and fortran/native_scenarios.f90",
+    "workflow": "Reduced generic probe assay with FAM/YY; legacy assay-specific SOP outcomes are not reproduced."
+  },
+  {
+    "code": 10,
+    "id": "hw-dirty",
+    "category": "1",
+    "title": "Dirty optical path (spill over a 4 × 4 patch)",
+    "kind": "native",
+    "editableParameters": [
+      {
+        "name": "Patch light transmission",
+        "default": 0.5,
+        "min": 0.01,
+        "max": 1,
+        "step": 0.05
+      },
+      {
+        "name": "Patch noise multiplier",
+        "default": 4,
+        "min": 1,
+        "max": 20,
+        "step": 1
+      },
+      {
+        "name": "",
+        "default": 0,
+        "min": 0,
+        "max": 0,
+        "step": 0
+      },
+      {
+        "name": "Affected-well scope code",
+        "default": 0,
+        "min": 0,
+        "max": 6,
+        "step": 1
+      },
+      {
+        "name": "Well mask (0=scope, bits 1-14)",
+        "default": 0,
+        "min": 0,
+        "max": 16383,
+        "step": 1
+      },
+      {
+        "name": "Scenario seed offset",
+        "default": 0,
+        "min": -100000,
+        "max": 100000,
+        "step": 1
+      }
+    ],
+    "nativeDefaultScope": 5,
+    "nativeAvailable": true,
+    "nativeScopeNote": "Sparse 384-position plate; generic DNA assay, FAM plus YY reference/empty channel. Original assay-specific outcomes are not claimed.",
+    "legacyMechanism": "Dried reagent on the window over 16 wells halves their light and makes it unsteady.",
+    "legacyArmable": true,
+    "nativeExecutable": true,
+    "implementation": "fortran/native_model.f90 and fortran/native_scenarios.f90",
+    "workflow": "Reduced generic probe assay with FAM/YY; legacy assay-specific SOP outcomes are not reproduced."
+  },
+  {
+    "code": 11,
+    "id": "hw-not-seated",
+    "category": "1",
+    "title": "Plate not seated flush (drawer jam; poor thermal contact in rows A–D)",
+    "kind": "native",
+    "editableParameters": [
+      {
+        "name": "Contact lag time constant (s)",
+        "default": 20,
+        "min": 1,
+        "max": 90,
+        "step": 1
+      },
+      {
+        "name": "",
+        "default": 0,
+        "min": 0,
+        "max": 0,
+        "step": 0
+      },
+      {
+        "name": "",
+        "default": 0,
+        "min": 0,
+        "max": 0,
+        "step": 0
+      },
+      {
+        "name": "Affected-well scope code",
+        "default": 0,
+        "min": 0,
+        "max": 6,
+        "step": 1
+      },
+      {
+        "name": "Well mask (0=scope, bits 1-14)",
+        "default": 0,
+        "min": 0,
+        "max": 16383,
+        "step": 1
+      },
+      {
+        "name": "Scenario seed offset",
+        "default": 0,
+        "min": -100000,
+        "max": 100000,
+        "step": 1
+      }
+    ],
+    "nativeDefaultScope": 1,
+    "nativeAvailable": true,
+    "nativeScopeNote": "Sparse 384-position plate; generic DNA assay, FAM plus YY reference/empty channel. Original assay-specific outcomes are not claimed.",
+    "legacyMechanism": "The plate rides on the block edge: the liquid follows the block with a 20 s time constant and does not reach 95 °C in a 15 s step.",
+    "legacyArmable": true,
+    "nativeExecutable": true,
+    "implementation": "fortran/native_model.f90 and fortran/native_scenarios.f90",
+    "workflow": "Reduced generic probe assay with FAM/YY; legacy assay-specific SOP outcomes are not reproduced."
+  },
+  {
+    "code": 12,
+    "id": "hw-sensor-drift",
+    "category": "1",
+    "title": "Block temperature sensor drifting low (added)",
+    "kind": "native",
+    "editableParameters": [
+      {
+        "name": "Primary sensor drift (C / s)",
+        "default": 0.5,
+        "min": 0.01,
+        "max": 2,
+        "step": 0.05
+      },
+      {
+        "name": "Maximum sensor bias (C)",
+        "default": 12,
+        "min": 1,
+        "max": 25,
+        "step": 1
+      },
+      {
+        "name": "Drift starts (instrument s)",
+        "default": 1200,
+        "min": 0,
+        "max": 4000,
+        "step": 60
+      },
+      {
+        "name": "",
+        "default": 0,
+        "min": 0,
+        "max": 0,
+        "step": 0
+      },
+      {
+        "name": "",
+        "default": 0,
+        "min": 0,
+        "max": 0,
+        "step": 0
+      },
+      {
+        "name": "Scenario seed offset",
+        "default": 0,
+        "min": -100000,
+        "max": 100000,
+        "step": 1
+      }
+    ],
+    "nativeDefaultScope": 1,
+    "nativeAvailable": true,
+    "nativeScopeNote": "Sparse 384-position plate; generic DNA assay, FAM plus YY reference/empty channel. Original assay-specific outcomes are not claimed.",
+    "legacyMechanism": "The zone-1 sensor reads up to 12 °C low; the controller heats until the sensor agrees, the block overheats.",
+    "legacyArmable": true,
+    "nativeExecutable": true,
+    "implementation": "fortran/native_model.f90 and fortran/native_scenarios.f90",
+    "workflow": "Reduced generic probe assay with FAM/YY; legacy assay-specific SOP outcomes are not reproduced."
+  },
+  {
+    "code": 13,
+    "id": "hw-fan",
+    "category": "1",
+    "title": "Cooling fan stalled (added)",
+    "kind": "native",
+    "editableParameters": [
+      {
+        "name": "Fan stall starts (instrument s)",
+        "default": 1800,
+        "min": 0,
+        "max": 4000,
+        "step": 60
+      },
+      {
+        "name": "Stall detection delay (s)",
+        "default": 3,
+        "min": 0.1,
+        "max": 20,
+        "step": 0.5
+      },
+      {
+        "name": "",
+        "default": 0,
+        "min": 0,
+        "max": 0,
+        "step": 0
+      },
+      {
+        "name": "",
+        "default": 0,
+        "min": 0,
+        "max": 0,
+        "step": 0
+      },
+      {
+        "name": "",
+        "default": 0,
+        "min": 0,
+        "max": 0,
+        "step": 0
+      },
+      {
+        "name": "Scenario seed offset",
+        "default": 0,
+        "min": -100000,
+        "max": 100000,
+        "step": 1
+      }
+    ],
+    "nativeDefaultScope": 1,
+    "nativeAvailable": true,
+    "nativeScopeNote": "Sparse 384-position plate; generic DNA assay, FAM plus YY reference/empty channel. Original assay-specific outcomes are not claimed.",
+    "legacyMechanism": "The heat sink overheats; the firmware stops the run when the fan is below 600 rpm for 3 s.",
+    "legacyArmable": true,
+    "nativeExecutable": true,
+    "implementation": "fortran/native_model.f90 and fortran/native_scenarios.f90",
+    "workflow": "Reduced generic probe assay with FAM/YY; legacy assay-specific SOP outcomes are not reproduced."
+  },
+  {
+    "code": 14,
+    "id": "hw-lid-opened",
+    "category": "1",
+    "title": "Lid opened during the run (added)",
+    "kind": "native",
+    "editableParameters": [
+      {
+        "name": "Lid opens (instrument s)",
+        "default": 1500,
+        "min": 0,
+        "max": 4000,
+        "step": 60
+      },
+      {
+        "name": "",
+        "default": 0,
+        "min": 0,
+        "max": 0,
+        "step": 0
+      },
+      {
+        "name": "",
+        "default": 0,
+        "min": 0,
+        "max": 0,
+        "step": 0
+      },
+      {
+        "name": "",
+        "default": 0,
+        "min": 0,
+        "max": 0,
+        "step": 0
+      },
+      {
+        "name": "",
+        "default": 0,
+        "min": 0,
+        "max": 0,
+        "step": 0
+      },
+      {
+        "name": "Scenario seed offset",
+        "default": 0,
+        "min": -100000,
+        "max": 100000,
+        "step": 1
+      }
+    ],
+    "nativeDefaultScope": 1,
+    "nativeAvailable": true,
+    "nativeScopeNote": "Sparse 384-position plate; generic DNA assay, FAM plus YY reference/empty channel. Original assay-specific outcomes are not claimed.",
+    "legacyMechanism": "The lid switch removes the drive enable; the firmware aborts.",
+    "legacyArmable": true,
+    "nativeExecutable": true,
+    "implementation": "fortran/native_model.f90 and fortran/native_scenarios.f90",
+    "workflow": "Reduced generic probe assay with FAM/YY; legacy assay-specific SOP outcomes are not reproduced."
+  },
+  {
+    "code": 15,
+    "id": "sw-baseline",
+    "category": "2",
+    "title": "Baseline misassignment (very early amplification)",
+    "kind": "native",
+    "editableParameters": [
+      {
+        "name": "Sample DNA multiplier",
+        "default": 200,
+        "min": 1,
+        "max": 1000,
+        "step": 10
+      },
+      {
+        "name": "",
+        "default": 0,
+        "min": 0,
+        "max": 0,
+        "step": 0
+      },
+      {
+        "name": "",
+        "default": 0,
+        "min": 0,
+        "max": 0,
+        "step": 0
+      },
+      {
+        "name": "Affected-well scope code",
+        "default": 0,
+        "min": 0,
+        "max": 6,
+        "step": 1
+      },
+      {
+        "name": "Well mask (0=scope, bits 1-14)",
+        "default": 0,
+        "min": 0,
+        "max": 16383,
+        "step": 1
+      },
+      {
+        "name": "Scenario seed offset",
+        "default": 0,
+        "min": -100000,
+        "max": 100000,
+        "step": 1
+      }
+    ],
+    "nativeDefaultScope": 2,
+    "nativeAvailable": true,
+    "nativeScopeNote": "Sparse 384-position plate; generic DNA assay, FAM plus YY reference/empty channel. Original assay-specific outcomes are not claimed.",
+    "legacyMechanism": "Sample DNA 200 × too concentrated: the reference gene rises inside the default baseline window (cycles 3–15).",
+    "legacyArmable": true,
+    "nativeExecutable": true,
+    "implementation": "fortran/native_model.f90 and fortran/native_scenarios.f90",
+    "workflow": "Reduced generic probe assay with FAM/YY; legacy assay-specific SOP outcomes are not reproduced."
+  },
+  {
+    "code": 16,
+    "id": "sw-threshold",
+    "category": "2",
+    "title": "Inappropriate threshold placement",
+    "kind": "analysis",
+    "editableParameters": [
+      {
+        "name": "Analysis net threshold (counts)",
+        "default": 1000,
+        "min": 1,
+        "max": 2000,
+        "step": 25
+      },
+      {
+        "name": "",
+        "default": 0,
+        "min": 0,
+        "max": 0,
+        "step": 0
+      },
+      {
+        "name": "",
+        "default": 0,
+        "min": 0,
+        "max": 0,
+        "step": 0
+      },
+      {
+        "name": "",
+        "default": 0,
+        "min": 0,
+        "max": 0,
+        "step": 0
+      },
+      {
+        "name": "",
+        "default": 0,
+        "min": 0,
+        "max": 0,
+        "step": 0
+      },
+      {
+        "name": "Scenario seed offset",
+        "default": 0,
+        "min": -100000,
+        "max": 100000,
+        "step": 1
+      }
+    ],
+    "nativeDefaultScope": 1,
+    "nativeAvailable": true,
+    "nativeScopeNote": "Sparse 384-position plate; generic DNA assay, FAM plus YY reference/empty channel. Original assay-specific outcomes are not claimed.",
+    "legacyMechanism": "The same raw record evaluated with the automatic threshold and with a manual threshold inside the noise or high in the linear phase.",
+    "legacyArmable": false,
+    "nativeExecutable": true,
+    "implementation": "fortran/native_model.f90 and fortran/native_scenarios.f90",
+    "workflow": "Reduced generic probe assay with FAM/YY; legacy assay-specific SOP outcomes are not reproduced."
+  },
+  {
+    "code": 17,
+    "id": "sw-colorcomp",
+    "category": "2",
+    "title": "Missing colour compensation (crosstalk not corrected)",
+    "kind": "injected",
+    "editableParameters": [
+      {
+        "name": "Uncorrected FAM to YY leakage",
+        "default": 0.3,
+        "min": 0,
+        "max": 1,
+        "step": 0.05
+      },
+      {
+        "name": "",
+        "default": 0,
+        "min": 0,
+        "max": 0,
+        "step": 0
+      },
+      {
+        "name": "",
+        "default": 0,
+        "min": 0,
+        "max": 0,
+        "step": 0
+      },
+      {
+        "name": "Affected-well scope code",
+        "default": 0,
+        "min": 0,
+        "max": 6,
+        "step": 1
+      },
+      {
+        "name": "Well mask (0=scope, bits 1-14)",
+        "default": 0,
+        "min": 0,
+        "max": 16383,
+        "step": 1
+      },
+      {
+        "name": "Scenario seed offset",
+        "default": 0,
+        "min": -100000,
+        "max": 100000,
+        "step": 1
+      }
+    ],
+    "nativeDefaultScope": 1,
+    "nativeAvailable": true,
+    "nativeScopeNote": "Sparse 384-position plate; generic DNA assay, FAM plus YY reference/empty channel. Original assay-specific outcomes are not claimed.",
+    "legacyMechanism": "Same as the optical crosstalk record, read without compensation: the duplex T-nos call follows P-35S.",
+    "legacyArmable": true,
+    "nativeExecutable": true,
+    "implementation": "fortran/native_model.f90 and fortran/native_scenarios.f90",
+    "workflow": "Reduced generic probe assay with FAM/YY; legacy assay-specific SOP outcomes are not reproduced."
+  },
+  {
+    "code": 18,
+    "id": "sw-passive-ref",
+    "category": "2",
+    "title": "Passive-reference normalisation applied to a mix without ROX",
+    "kind": "analysis",
+    "editableParameters": [
+      {
+        "name": "Incorrect ratio scale factor",
+        "default": 100,
+        "min": 1,
+        "max": 1000,
+        "step": 10
+      },
+      {
+        "name": "",
+        "default": 0,
+        "min": 0,
+        "max": 0,
+        "step": 0
+      },
+      {
+        "name": "",
+        "default": 0,
+        "min": 0,
+        "max": 0,
+        "step": 0
+      },
+      {
+        "name": "",
+        "default": 0,
+        "min": 0,
+        "max": 0,
+        "step": 0
+      },
+      {
+        "name": "",
+        "default": 0,
+        "min": 0,
+        "max": 0,
+        "step": 0
+      },
+      {
+        "name": "Scenario seed offset",
+        "default": 0,
+        "min": -100000,
+        "max": 100000,
+        "step": 1
+      }
+    ],
+    "nativeDefaultScope": 1,
+    "nativeAvailable": true,
+    "nativeScopeNote": "Sparse 384-position plate; generic DNA assay, FAM plus YY reference/empty channel. Original assay-specific outcomes are not claimed.",
+    "legacyMechanism": "The probe mixes of the workbench contain no passive dye (noRef). Dividing FAM by the second channel divides by its bleed-through, which rises with amplification: curves flatten.",
+    "legacyArmable": false,
+    "nativeExecutable": true,
+    "implementation": "fortran/native_model.f90 and fortran/native_scenarios.f90",
+    "workflow": "Reduced generic probe assay with FAM/YY; legacy assay-specific SOP outcomes are not reproduced."
+  },
+  {
+    "code": 19,
+    "id": "sw-dropout",
+    "category": "2",
+    "title": "Firmware–software communication dropout",
+    "kind": "injected",
+    "editableParameters": [
+      {
+        "name": "First missing cycle",
+        "default": 18,
+        "min": 2,
+        "max": 43,
+        "step": 1
+      },
+      {
+        "name": "Number of missing cycles",
+        "default": 3,
+        "min": 1,
+        "max": 10,
+        "step": 1
+      },
+      {
+        "name": "",
+        "default": 0,
+        "min": 0,
+        "max": 0,
+        "step": 0
+      },
+      {
+        "name": "",
+        "default": 0,
+        "min": 0,
+        "max": 0,
+        "step": 0
+      },
+      {
+        "name": "",
+        "default": 0,
+        "min": 0,
+        "max": 0,
+        "step": 0
+      },
+      {
+        "name": "Scenario seed offset",
+        "default": 0,
+        "min": -100000,
+        "max": 100000,
+        "step": 1
+      }
+    ],
+    "nativeDefaultScope": 1,
+    "nativeAvailable": true,
+    "nativeScopeNote": "Sparse 384-position plate; generic DNA assay, FAM plus YY reference/empty channel. Original assay-specific outcomes are not claimed.",
+    "legacyMechanism": "The data link stalls for three cycles: their readings and 4 minutes of telemetry never reach the PC.",
+    "legacyArmable": true,
+    "nativeExecutable": true,
+    "implementation": "fortran/native_model.f90 and fortran/native_scenarios.f90",
+    "workflow": "Reduced generic probe assay with FAM/YY; legacy assay-specific SOP outcomes are not reproduced."
+  },
+  {
+    "code": 20,
+    "id": "sw-template",
+    "category": "2",
+    "title": "Corrupted / outdated run template",
+    "kind": "native",
+    "editableParameters": [
+      {
+        "name": "Outdated annealing target (C)",
+        "default": 55,
+        "min": 45,
+        "max": 75,
+        "step": 1
+      },
+      {
+        "name": "Outdated cycle count",
+        "default": 40,
+        "min": 10,
+        "max": 45,
+        "step": 1
+      },
+      {
+        "name": "",
+        "default": 0,
+        "min": 0,
+        "max": 0,
+        "step": 0
+      },
+      {
+        "name": "",
+        "default": 0,
+        "min": 0,
+        "max": 0,
+        "step": 0
+      },
+      {
+        "name": "",
+        "default": 0,
+        "min": 0,
+        "max": 0,
+        "step": 0
+      },
+      {
+        "name": "Scenario seed offset",
+        "default": 0,
+        "min": -100000,
+        "max": 100000,
+        "step": 1
+      }
+    ],
+    "nativeDefaultScope": 1,
+    "nativeAvailable": true,
+    "nativeScopeNote": "Sparse 384-position plate; generic DNA assay, FAM plus YY reference/empty channel. Original assay-specific outcomes are not claimed.",
+    "legacyMechanism": "An old template carries annealing 55 °C and 40 cycles: a different programme, so a different SOP.",
+    "legacyArmable": true,
+    "nativeExecutable": true,
+    "implementation": "fortran/native_model.f90 and fortran/native_scenarios.f90",
+    "workflow": "Reduced generic probe assay with FAM/YY; legacy assay-specific SOP outcomes are not reproduced."
+  },
+  {
+    "code": 21,
+    "id": "sw-melt",
+    "category": "2",
+    "title": "Melt-curve derivative errors",
+    "kind": "not reproducible",
+    "editableParameters": [
+      {
+        "name": "Requested melt peak (C)",
+        "default": 82,
+        "min": 60,
+        "max": 95,
+        "step": 1
+      },
+      {
+        "name": "Derivative window points",
+        "default": 5,
+        "min": 3,
+        "max": 11,
+        "step": 2
+      },
+      {
+        "name": "",
+        "default": 0,
+        "min": 0,
+        "max": 0,
+        "step": 0
+      },
+      {
+        "name": "",
+        "default": 0,
+        "min": 0,
+        "max": 0,
+        "step": 0
+      },
+      {
+        "name": "",
+        "default": 0,
+        "min": 0,
+        "max": 0,
+        "step": 0
+      },
+      {
+        "name": "Scenario seed offset",
+        "default": 0,
+        "min": -100000,
+        "max": 100000,
+        "step": 1
+      }
+    ],
+    "nativeDefaultScope": 1,
+    "nativeAvailable": false,
+    "nativeScopeNote": "Sparse 384-position plate; generic DNA assay, FAM plus YY reference/empty channel. Original assay-specific outcomes are not claimed.",
+    "legacyMechanism": "This catalogue scenario is not implemented for the default probe assays. A hydrolysis-probe melt is not an amplicon melt. The separate EURL QL-ELE-00-020 method uses SYBR Green.",
+    "legacyArmable": false,
+    "nativeExecutable": false,
+    "implementation": "fortran/native_model.f90 and fortran/native_scenarios.f90",
+    "workflow": "Reduced generic probe assay with FAM/YY; legacy assay-specific SOP outcomes are not reproduced."
+  },
+  {
+    "code": 22,
+    "id": "sw-crash",
+    "category": "2",
+    "title": "Software crash before saving (long run)",
+    "kind": "injected",
+    "editableParameters": [
+      {
+        "name": "Last saved cycle before crash",
+        "default": 30,
+        "min": 1,
+        "max": 44,
+        "step": 1
+      },
+      {
+        "name": "",
+        "default": 0,
+        "min": 0,
+        "max": 0,
+        "step": 0
+      },
+      {
+        "name": "",
+        "default": 0,
+        "min": 0,
+        "max": 0,
+        "step": 0
+      },
+      {
+        "name": "",
+        "default": 0,
+        "min": 0,
+        "max": 0,
+        "step": 0
+      },
+      {
+        "name": "",
+        "default": 0,
+        "min": 0,
+        "max": 0,
+        "step": 0
+      },
+      {
+        "name": "Scenario seed offset",
+        "default": 0,
+        "min": -100000,
+        "max": 100000,
+        "step": 1
+      }
+    ],
+    "nativeDefaultScope": 1,
+    "nativeAvailable": true,
+    "nativeScopeNote": "Sparse 384-position plate; generic DNA assay, FAM plus YY reference/empty channel. Original assay-specific outcomes are not claimed.",
+    "legacyMechanism": "The PC software stops after cycle 30: the run file ends there and has no completion event.",
+    "legacyArmable": true,
+    "nativeExecutable": true,
+    "implementation": "fortran/native_model.f90 and fortran/native_scenarios.f90",
+    "workflow": "Reduced generic probe assay with FAM/YY; legacy assay-specific SOP outcomes are not reproduced."
+  },
+  {
+    "code": 23,
+    "id": "re-polymerase",
+    "category": "3",
+    "title": "Polymerase inactivation (master mix 6 months at room temperature)",
+    "kind": "native",
+    "editableParameters": [
+      {
+        "name": "Remaining enzyme fraction",
+        "default": 0.25,
+        "min": 0.001,
+        "max": 1,
+        "step": 0.05
+      },
+      {
+        "name": "Remaining efficiency fraction",
+        "default": 0.65,
+        "min": 0.05,
+        "max": 1,
+        "step": 0.05
+      },
+      {
+        "name": "",
+        "default": 0,
+        "min": 0,
+        "max": 0,
+        "step": 0
+      },
+      {
+        "name": "Affected-well scope code",
+        "default": 0,
+        "min": 0,
+        "max": 6,
+        "step": 1
+      },
+      {
+        "name": "Well mask (0=scope, bits 1-14)",
+        "default": 0,
+        "min": 0,
+        "max": 16383,
+        "step": 1
+      },
+      {
+        "name": "Scenario seed offset",
+        "default": 0,
+        "min": -100000,
+        "max": 100000,
+        "step": 1
+      }
+    ],
+    "nativeDefaultScope": 1,
+    "nativeAvailable": true,
+    "nativeScopeNote": "Sparse 384-position plate; generic DNA assay, FAM plus YY reference/empty channel. Original assay-specific outcomes are not claimed.",
+    "legacyMechanism": "Enzyme activity and efficiency fall with storage temperature and time.",
+    "legacyArmable": true,
+    "nativeExecutable": true,
+    "implementation": "fortran/native_model.f90 and fortran/native_scenarios.f90",
+    "workflow": "Reduced generic probe assay with FAM/YY; legacy assay-specific SOP outcomes are not reproduced."
+  },
+  {
+    "code": 24,
+    "id": "re-bleach",
+    "category": "3",
+    "title": "Fluorophore photobleaching (probe 24 h in lab light)",
+    "kind": "native",
+    "editableParameters": [
+      {
+        "name": "Fluorescent probe fraction",
+        "default": 0.25,
+        "min": 0.01,
+        "max": 1,
+        "step": 0.05
+      },
+      {
+        "name": "",
+        "default": 0,
+        "min": 0,
+        "max": 0,
+        "step": 0
+      },
+      {
+        "name": "",
+        "default": 0,
+        "min": 0,
+        "max": 0,
+        "step": 0
+      },
+      {
+        "name": "Affected-well scope code",
+        "default": 0,
+        "min": 0,
+        "max": 6,
+        "step": 1
+      },
+      {
+        "name": "Well mask (0=scope, bits 1-14)",
+        "default": 0,
+        "min": 0,
+        "max": 16383,
+        "step": 1
+      },
+      {
+        "name": "Scenario seed offset",
+        "default": 0,
+        "min": -100000,
+        "max": 100000,
+        "step": 1
+      }
+    ],
+    "nativeDefaultScope": 1,
+    "nativeAvailable": true,
+    "nativeScopeNote": "Sparse 384-position plate; generic DNA assay, FAM plus YY reference/empty channel. Original assay-specific outcomes are not claimed.",
+    "legacyMechanism": "Bleached probes still bind and are cut but give no light: lower plateau, same Cq.",
+    "legacyArmable": true,
+    "nativeExecutable": true,
+    "implementation": "fortran/native_model.f90 and fortran/native_scenarios.f90",
+    "workflow": "Reduced generic probe assay with FAM/YY; legacy assay-specific SOP outcomes are not reproduced."
+  },
+  {
+    "code": 25,
+    "id": "re-probe-degraded",
+    "category": "3",
+    "title": "Probe degradation (quencher separated: high baseline)",
+    "kind": "native",
+    "editableParameters": [
+      {
+        "name": "Unquenched reporter (nM)",
+        "default": 25,
+        "min": 0,
+        "max": 150,
+        "step": 5
+      },
+      {
+        "name": "",
+        "default": 0,
+        "min": 0,
+        "max": 0,
+        "step": 0
+      },
+      {
+        "name": "",
+        "default": 0,
+        "min": 0,
+        "max": 0,
+        "step": 0
+      },
+      {
+        "name": "Affected-well scope code",
+        "default": 0,
+        "min": 0,
+        "max": 6,
+        "step": 1
+      },
+      {
+        "name": "Well mask (0=scope, bits 1-14)",
+        "default": 0,
+        "min": 0,
+        "max": 16383,
+        "step": 1
+      },
+      {
+        "name": "Scenario seed offset",
+        "default": 0,
+        "min": -100000,
+        "max": 100000,
+        "step": 1
+      }
+    ],
+    "nativeDefaultScope": 1,
+    "nativeAvailable": true,
+    "nativeScopeNote": "Sparse 384-position plate; generic DNA assay, FAM plus YY reference/empty channel. Original assay-specific outcomes are not claimed.",
+    "legacyMechanism": "Probes stored 12 months at room temperature: cut reporter is free before cycling starts.",
+    "legacyArmable": true,
+    "nativeExecutable": true,
+    "implementation": "fortran/native_model.f90 and fortran/native_scenarios.f90",
+    "workflow": "Reduced generic probe assay with FAM/YY; legacy assay-specific SOP outcomes are not reproduced."
+  },
+  {
+    "code": 26,
+    "id": "re-dntp",
+    "category": "3",
+    "title": "dNTP hydrolysis (nucleotides run out in the late cycles)",
+    "kind": "injected",
+    "editableParameters": [
+      {
+        "name": "Retained plateau fraction",
+        "default": 0.45,
+        "min": 0.05,
+        "max": 1,
+        "step": 0.05
+      },
+      {
+        "name": "",
+        "default": 0,
+        "min": 0,
+        "max": 0,
+        "step": 0
+      },
+      {
+        "name": "",
+        "default": 0,
+        "min": 0,
+        "max": 0,
+        "step": 0
+      },
+      {
+        "name": "Affected-well scope code",
+        "default": 0,
+        "min": 0,
+        "max": 6,
+        "step": 1
+      },
+      {
+        "name": "Well mask (0=scope, bits 1-14)",
+        "default": 0,
+        "min": 0,
+        "max": 16383,
+        "step": 1
+      },
+      {
+        "name": "Scenario seed offset",
+        "default": 0,
+        "min": -100000,
+        "max": 100000,
+        "step": 1
+      }
+    ],
+    "nativeDefaultScope": 1,
+    "nativeAvailable": true,
+    "nativeScopeNote": "Sparse 384-position plate; generic DNA assay, FAM plus YY reference/empty channel. Original assay-specific outcomes are not claimed.",
+    "legacyMechanism": "Degraded dNTPs starve the reaction once product accumulates: the plateau comes early and low, the Cq barely moves.",
+    "legacyArmable": true,
+    "nativeExecutable": true,
+    "implementation": "fortran/native_model.f90 and fortran/native_scenarios.f90",
+    "workflow": "Reduced generic probe assay with FAM/YY; legacy assay-specific SOP outcomes are not reproduced."
+  },
+  {
+    "code": 27,
+    "id": "re-inhibitor",
+    "category": "3",
+    "title": "Inhibitors in the template (ethanol / humic acid carry-over)",
+    "kind": "native",
+    "editableParameters": [
+      {
+        "name": "Sample enzyme fraction",
+        "default": 0.5,
+        "min": 0.01,
+        "max": 1,
+        "step": 0.05
+      },
+      {
+        "name": "Sample efficiency fraction",
+        "default": 0.65,
+        "min": 0.05,
+        "max": 1,
+        "step": 0.05
+      },
+      {
+        "name": "",
+        "default": 0,
+        "min": 0,
+        "max": 0,
+        "step": 0
+      },
+      {
+        "name": "Affected-well scope code",
+        "default": 0,
+        "min": 0,
+        "max": 6,
+        "step": 1
+      },
+      {
+        "name": "Well mask (0=scope, bits 1-14)",
+        "default": 0,
+        "min": 0,
+        "max": 16383,
+        "step": 1
+      },
+      {
+        "name": "Scenario seed offset",
+        "default": 0,
+        "min": -100000,
+        "max": 100000,
+        "step": 1
+      }
+    ],
+    "nativeDefaultScope": 2,
+    "nativeAvailable": true,
+    "nativeScopeNote": "Sparse 384-position plate; generic DNA assay, FAM plus YY reference/empty channel. Original assay-specific outcomes are not claimed.",
+    "legacyMechanism": "Sample wells only: efficiency and enzyme activity fall; controls are unaffected.",
+    "legacyArmable": true,
+    "nativeExecutable": true,
+    "implementation": "fortran/native_model.f90 and fortran/native_scenarios.f90",
+    "workflow": "Reduced generic probe assay with FAM/YY; legacy assay-specific SOP outcomes are not reproduced."
+  },
+  {
+    "code": 28,
+    "id": "re-plastic-profile",
+    "category": "3",
+    "title": "Incompatible plastics (wrong plate profile)",
+    "kind": "native",
+    "editableParameters": [
+      {
+        "name": "Plate contact lag (s)",
+        "default": 12,
+        "min": 1,
+        "max": 60,
+        "step": 1
+      },
+      {
+        "name": "",
+        "default": 0,
+        "min": 0,
+        "max": 0,
+        "step": 0
+      },
+      {
+        "name": "",
+        "default": 0,
+        "min": 0,
+        "max": 0,
+        "step": 0
+      },
+      {
+        "name": "Affected-well scope code",
+        "default": 0,
+        "min": 0,
+        "max": 6,
+        "step": 1
+      },
+      {
+        "name": "Well mask (0=scope, bits 1-14)",
+        "default": 0,
+        "min": 0,
+        "max": 16383,
+        "step": 1
+      },
+      {
+        "name": "Scenario seed offset",
+        "default": 0,
+        "min": -100000,
+        "max": 100000,
+        "step": 1
+      }
+    ],
+    "nativeDefaultScope": 1,
+    "nativeAvailable": true,
+    "nativeScopeNote": "Sparse 384-position plate; generic DNA assay, FAM plus YY reference/empty channel. Original assay-specific outcomes are not claimed.",
+    "legacyMechanism": "The plate does not sit in the block wells: every well follows the block with a 12 s time constant.",
+    "legacyArmable": true,
+    "nativeExecutable": true,
+    "implementation": "fortran/native_model.f90 and fortran/native_scenarios.f90",
+    "workflow": "Reduced generic probe assay with FAM/YY; legacy assay-specific SOP outcomes are not reproduced."
+  },
+  {
+    "code": 29,
+    "id": "re-seal",
+    "category": "3",
+    "title": "Non-optical sealing film",
+    "kind": "native",
+    "editableParameters": [
+      {
+        "name": "Seal optical transmission",
+        "default": 0.12,
+        "min": 0.01,
+        "max": 1,
+        "step": 0.02
+      },
+      {
+        "name": "",
+        "default": 0,
+        "min": 0,
+        "max": 0,
+        "step": 0
+      },
+      {
+        "name": "",
+        "default": 0,
+        "min": 0,
+        "max": 0,
+        "step": 0
+      },
+      {
+        "name": "Affected-well scope code",
+        "default": 0,
+        "min": 0,
+        "max": 6,
+        "step": 1
+      },
+      {
+        "name": "Well mask (0=scope, bits 1-14)",
+        "default": 0,
+        "min": 0,
+        "max": 16383,
+        "step": 1
+      },
+      {
+        "name": "Scenario seed offset",
+        "default": 0,
+        "min": -100000,
+        "max": 100000,
+        "step": 1
+      }
+    ],
+    "nativeDefaultScope": 1,
+    "nativeAvailable": true,
+    "nativeScopeNote": "Sparse 384-position plate; generic DNA assay, FAM plus YY reference/empty channel. Original assay-specific outcomes are not claimed.",
+    "legacyMechanism": "A white or foil seal passes about 12 % of the light: low counts, noise dominates.",
+    "legacyArmable": true,
+    "nativeExecutable": true,
+    "implementation": "fortran/native_model.f90 and fortran/native_scenarios.f90",
+    "workflow": "Reduced generic probe assay with FAM/YY; legacy assay-specific SOP outcomes are not reproduced."
+  },
+  {
+    "code": 30,
+    "id": "re-autofluor",
+    "category": "3",
+    "title": "Autofluorescent plastics",
+    "kind": "native",
+    "editableParameters": [
+      {
+        "name": "Added background counts",
+        "default": 400,
+        "min": 0,
+        "max": 3000,
+        "step": 50
+      },
+      {
+        "name": "",
+        "default": 0,
+        "min": 0,
+        "max": 0,
+        "step": 0
+      },
+      {
+        "name": "",
+        "default": 0,
+        "min": 0,
+        "max": 0,
+        "step": 0
+      },
+      {
+        "name": "Affected-well scope code",
+        "default": 0,
+        "min": 0,
+        "max": 6,
+        "step": 1
+      },
+      {
+        "name": "Well mask (0=scope, bits 1-14)",
+        "default": 0,
+        "min": 0,
+        "max": 16383,
+        "step": 1
+      },
+      {
+        "name": "Scenario seed offset",
+        "default": 0,
+        "min": -100000,
+        "max": 100000,
+        "step": 1
+      }
+    ],
+    "nativeDefaultScope": 1,
+    "nativeAvailable": true,
+    "nativeScopeNote": "Sparse 384-position plate; generic DNA assay, FAM plus YY reference/empty channel. Original assay-specific outcomes are not claimed.",
+    "legacyMechanism": "The polypropylene adds a constant glow of 900 counts: higher background, lower relative signal.",
+    "legacyArmable": true,
+    "nativeExecutable": true,
+    "implementation": "fortran/native_model.f90 and fortran/native_scenarios.f90",
+    "workflow": "Reduced generic probe assay with FAM/YY; legacy assay-specific SOP outcomes are not reproduced."
+  },
+  {
+    "code": 31,
+    "id": "re-lot",
+    "category": "3",
+    "title": "Lot-to-lot variability (new primer/probe lot at 60 % / 70 %)",
+    "kind": "native",
+    "editableParameters": [
+      {
+        "name": "Remaining primer fraction",
+        "default": 0.6,
+        "min": 0.05,
+        "max": 1.5,
+        "step": 0.05
+      },
+      {
+        "name": "Remaining probe fraction",
+        "default": 0.7,
+        "min": 0.05,
+        "max": 1.5,
+        "step": 0.05
+      },
+      {
+        "name": "",
+        "default": 0,
+        "min": 0,
+        "max": 0,
+        "step": 0
+      },
+      {
+        "name": "Affected-well scope code",
+        "default": 0,
+        "min": 0,
+        "max": 6,
+        "step": 1
+      },
+      {
+        "name": "Well mask (0=scope, bits 1-14)",
+        "default": 0,
+        "min": 0,
+        "max": 16383,
+        "step": 1
+      },
+      {
+        "name": "Scenario seed offset",
+        "default": 0,
+        "min": -100000,
+        "max": 100000,
+        "step": 1
+      }
+    ],
+    "nativeDefaultScope": 1,
+    "nativeAvailable": true,
+    "nativeScopeNote": "Sparse 384-position plate; generic DNA assay, FAM plus YY reference/empty channel. Original assay-specific outcomes are not claimed.",
+    "legacyMechanism": "A new lot delivers less primer and probe than stated: positive control later and weaker.",
+    "legacyArmable": true,
+    "nativeExecutable": true,
+    "implementation": "fortran/native_model.f90 and fortran/native_scenarios.f90",
+    "workflow": "Reduced generic probe assay with FAM/YY; legacy assay-specific SOP outcomes are not reproduced."
+  },
+  {
+    "code": 32,
+    "id": "re-hotstart",
+    "category": "3",
+    "title": "No hot start, plate left 4 h on a warm bench (added)",
+    "kind": "native",
+    "editableParameters": [
+      {
+        "name": "Warm-bench time (hours)",
+        "default": 4,
+        "min": 0,
+        "max": 24,
+        "step": 0.5
+      },
+      {
+        "name": "Warm bench temperature (C)",
+        "default": 30,
+        "min": 20,
+        "max": 45,
+        "step": 1
+      },
+      {
+        "name": "",
+        "default": 0,
+        "min": 0,
+        "max": 0,
+        "step": 0
+      },
+      {
+        "name": "Affected-well scope code",
+        "default": 0,
+        "min": 0,
+        "max": 6,
+        "step": 1
+      },
+      {
+        "name": "Well mask (0=scope, bits 1-14)",
+        "default": 0,
+        "min": 0,
+        "max": 16383,
+        "step": 1
+      },
+      {
+        "name": "Scenario seed offset",
+        "default": 0,
+        "min": -100000,
+        "max": 100000,
+        "step": 1
+      }
+    ],
+    "nativeDefaultScope": 1,
+    "nativeAvailable": true,
+    "nativeScopeNote": "Sparse 384-position plate; generic DNA assay, FAM plus YY reference/empty channel. Original assay-specific outcomes are not claimed.",
+    "legacyMechanism": "Polymerase active at room temperature extends primer-dimers before the run. Hydrolysis probes do not report dimers, so the curves stay clean: the lesson is that this error is invisible with probes and visible with intercalating dyes.",
+    "legacyArmable": true,
+    "nativeExecutable": true,
+    "implementation": "fortran/native_model.f90 and fortran/native_scenarios.f90",
+    "workflow": "Reduced generic probe assay with FAM/YY; legacy assay-specific SOP outcomes are not reproduced."
+  },
+  {
+    "code": 33,
+    "id": "re-mismatch",
+    "category": "3",
+    "title": "Probe mismatch to the target variant (added)",
+    "kind": "native",
+    "editableParameters": [
+      {
+        "name": "Probe melting-point loss (C)",
+        "default": 8,
+        "min": 0,
+        "max": 20,
+        "step": 1
+      },
+      {
+        "name": "",
+        "default": 0,
+        "min": 0,
+        "max": 0,
+        "step": 0
+      },
+      {
+        "name": "",
+        "default": 0,
+        "min": 0,
+        "max": 0,
+        "step": 0
+      },
+      {
+        "name": "Affected-well scope code",
+        "default": 0,
+        "min": 0,
+        "max": 6,
+        "step": 1
+      },
+      {
+        "name": "Well mask (0=scope, bits 1-14)",
+        "default": 0,
+        "min": 0,
+        "max": 16383,
+        "step": 1
+      },
+      {
+        "name": "Scenario seed offset",
+        "default": 0,
+        "min": -100000,
+        "max": 100000,
+        "step": 1
+      }
+    ],
+    "nativeDefaultScope": 2,
+    "nativeAvailable": true,
+    "nativeScopeNote": "Sparse 384-position plate; generic DNA assay, FAM plus YY reference/empty channel. Original assay-specific outcomes are not claimed.",
+    "legacyMechanism": "One mismatch lowers the probe Tm: weaker binding at annealing, lower plateau, later Cq.",
+    "legacyArmable": true,
+    "nativeExecutable": true,
+    "implementation": "fortran/native_model.f90 and fortran/native_scenarios.f90",
+    "workflow": "Reduced generic probe assay with FAM/YY; legacy assay-specific SOP outcomes are not reproduced."
+  },
+  {
+    "code": 34,
+    "id": "hu-anneal-high",
+    "category": "4a",
+    "title": "Wrong thermal profile: annealing too high (68 °C)",
+    "kind": "native",
+    "editableParameters": [
+      {
+        "name": "Annealing target (C)",
+        "default": 68,
+        "min": 60,
+        "max": 80,
+        "step": 1
+      },
+      {
+        "name": "",
+        "default": 0,
+        "min": 0,
+        "max": 0,
+        "step": 0
+      },
+      {
+        "name": "",
+        "default": 0,
+        "min": 0,
+        "max": 0,
+        "step": 0
+      },
+      {
+        "name": "",
+        "default": 0,
+        "min": 0,
+        "max": 0,
+        "step": 0
+      },
+      {
+        "name": "",
+        "default": 0,
+        "min": 0,
+        "max": 0,
+        "step": 0
+      },
+      {
+        "name": "Scenario seed offset",
+        "default": 0,
+        "min": -100000,
+        "max": 100000,
+        "step": 1
+      }
+    ],
+    "nativeDefaultScope": 1,
+    "nativeAvailable": true,
+    "nativeScopeNote": "Sparse 384-position plate; generic DNA assay, FAM plus YY reference/empty channel. Original assay-specific outcomes are not claimed.",
+    "legacyMechanism": "Primers barely bind above their Tm: very late or no amplification.",
+    "legacyArmable": true,
+    "nativeExecutable": true,
+    "implementation": "fortran/native_model.f90 and fortran/native_scenarios.f90",
+    "workflow": "Reduced generic probe assay with FAM/YY; legacy assay-specific SOP outcomes are not reproduced."
+  },
+  {
+    "code": 35,
+    "id": "hu-anneal-low",
+    "category": "4a",
+    "title": "Wrong thermal profile: annealing too low (50 °C)",
+    "kind": "native",
+    "editableParameters": [
+      {
+        "name": "Annealing target (C)",
+        "default": 50,
+        "min": 40,
+        "max": 60,
+        "step": 1
+      },
+      {
+        "name": "",
+        "default": 0,
+        "min": 0,
+        "max": 0,
+        "step": 0
+      },
+      {
+        "name": "",
+        "default": 0,
+        "min": 0,
+        "max": 0,
+        "step": 0
+      },
+      {
+        "name": "",
+        "default": 0,
+        "min": 0,
+        "max": 0,
+        "step": 0
+      },
+      {
+        "name": "",
+        "default": 0,
+        "min": 0,
+        "max": 0,
+        "step": 0
+      },
+      {
+        "name": "Scenario seed offset",
+        "default": 0,
+        "min": -100000,
+        "max": 100000,
+        "step": 1
+      }
+    ],
+    "nativeDefaultScope": 1,
+    "nativeAvailable": true,
+    "nativeScopeNote": "Sparse 384-position plate; generic DNA assay, FAM plus YY reference/empty channel. Original assay-specific outcomes are not claimed.",
+    "legacyMechanism": "Permissive priming: more primer-dimer and off-target product.",
+    "legacyArmable": true,
+    "nativeExecutable": true,
+    "implementation": "fortran/native_model.f90 and fortran/native_scenarios.f90",
+    "workflow": "Reduced generic probe assay with FAM/YY; legacy assay-specific SOP outcomes are not reproduced."
+  },
+  {
+    "code": 36,
+    "id": "hu-dye",
+    "category": "4a",
+    "title": "Incorrect fluorophore selection (P-35S read on the wrong channel)",
+    "kind": "injected",
+    "editableParameters": [
+      {
+        "name": "Wrong-channel transfer fraction",
+        "default": 1,
+        "min": 0.1,
+        "max": 1,
+        "step": 0.1
+      },
+      {
+        "name": "",
+        "default": 0,
+        "min": 0,
+        "max": 0,
+        "step": 0
+      },
+      {
+        "name": "",
+        "default": 0,
+        "min": 0,
+        "max": 0,
+        "step": 0
+      },
+      {
+        "name": "Affected-well scope code",
+        "default": 0,
+        "min": 0,
+        "max": 6,
+        "step": 1
+      },
+      {
+        "name": "Well mask (0=scope, bits 1-14)",
+        "default": 0,
+        "min": 0,
+        "max": 16383,
+        "step": 1
+      },
+      {
+        "name": "Scenario seed offset",
+        "default": 0,
+        "min": -100000,
+        "max": 100000,
+        "step": 1
+      }
+    ],
+    "nativeDefaultScope": 1,
+    "nativeAvailable": true,
+    "nativeScopeNote": "Sparse 384-position plate; generic DNA assay, FAM plus YY reference/empty channel. Original assay-specific outcomes are not claimed.",
+    "legacyMechanism": "The software reads the YY channel for a FAM probe: the P-35S wells look flat.",
+    "legacyArmable": true,
+    "nativeExecutable": true,
+    "implementation": "fortran/native_model.f90 and fortran/native_scenarios.f90",
+    "workflow": "Reduced generic probe assay with FAM/YY; legacy assay-specific SOP outcomes are not reproduced."
+  },
+  {
+    "code": 37,
+    "id": "hu-rotated",
+    "category": "4a",
+    "title": "Plate loaded rotated 180°",
+    "kind": "injected",
+    "editableParameters": [
+      {
+        "name": "Rotation (degrees)",
+        "default": 180,
+        "min": 0,
+        "max": 270,
+        "step": 90
+      },
+      {
+        "name": "",
+        "default": 0,
+        "min": 0,
+        "max": 0,
+        "step": 0
+      },
+      {
+        "name": "",
+        "default": 0,
+        "min": 0,
+        "max": 0,
+        "step": 0
+      },
+      {
+        "name": "",
+        "default": 0,
+        "min": 0,
+        "max": 0,
+        "step": 0
+      },
+      {
+        "name": "",
+        "default": 0,
+        "min": 0,
+        "max": 0,
+        "step": 0
+      },
+      {
+        "name": "Scenario seed offset",
+        "default": 0,
+        "min": -100000,
+        "max": 100000,
+        "step": 1
+      }
+    ],
+    "nativeDefaultScope": 1,
+    "nativeAvailable": true,
+    "nativeScopeNote": "Sparse 384-position plate; generic DNA assay, FAM plus YY reference/empty channel. Original assay-specific outcomes are not claimed.",
+    "legacyMechanism": "Well A1 sits at P24: the camera reads empty positions where the plan expects reactions.",
+    "legacyArmable": true,
+    "nativeExecutable": true,
+    "implementation": "fortran/native_model.f90 and fortran/native_scenarios.f90",
+    "workflow": "Reduced generic probe assay with FAM/YY; legacy assay-specific SOP outcomes are not reproduced."
+  },
+  {
+    "code": 38,
+    "id": "hu-no-controls",
+    "category": "4a",
+    "title": "Missing controls (NTC and extraction blank omitted)",
+    "kind": "native",
+    "editableParameters": [
+      {
+        "name": "Omit NTC (1=yes)",
+        "default": 1,
+        "min": 0,
+        "max": 1,
+        "step": 1
+      },
+      {
+        "name": "Omit extraction blank (1=yes)",
+        "default": 1,
+        "min": 0,
+        "max": 1,
+        "step": 1
+      },
+      {
+        "name": "",
+        "default": 0,
+        "min": 0,
+        "max": 0,
+        "step": 0
+      },
+      {
+        "name": "",
+        "default": 0,
+        "min": 0,
+        "max": 0,
+        "step": 0
+      },
+      {
+        "name": "",
+        "default": 0,
+        "min": 0,
+        "max": 0,
+        "step": 0
+      },
+      {
+        "name": "Scenario seed offset",
+        "default": 0,
+        "min": -100000,
+        "max": 100000,
+        "step": 1
+      }
+    ],
+    "nativeDefaultScope": 6,
+    "nativeAvailable": true,
+    "nativeScopeNote": "Sparse 384-position plate; generic DNA assay, FAM plus YY reference/empty channel. Original assay-specific outcomes are not claimed.",
+    "legacyMechanism": "Without negative controls, contamination cannot be excluded.",
+    "legacyArmable": true,
+    "nativeExecutable": true,
+    "implementation": "fortran/native_model.f90 and fortran/native_scenarios.f90",
+    "workflow": "Reduced generic probe assay with FAM/YY; legacy assay-specific SOP outcomes are not reproduced."
+  },
+  {
+    "code": 39,
+    "id": "hu-seal",
+    "category": "4a",
+    "title": "Inadequate sealing (edge-well evaporation)",
+    "kind": "injected",
+    "editableParameters": [
+      {
+        "name": "Late edge loss / cycle",
+        "default": 0.025,
+        "min": 0,
+        "max": 0.1,
+        "step": 0.005
+      },
+      {
+        "name": "First affected cycle",
+        "default": 25,
+        "min": 1,
+        "max": 44,
+        "step": 1
+      },
+      {
+        "name": "",
+        "default": 0,
+        "min": 0,
+        "max": 0,
+        "step": 0
+      },
+      {
+        "name": "Affected-well scope code",
+        "default": 0,
+        "min": 0,
+        "max": 6,
+        "step": 1
+      },
+      {
+        "name": "Well mask (0=scope, bits 1-14)",
+        "default": 0,
+        "min": 0,
+        "max": 16383,
+        "step": 1
+      },
+      {
+        "name": "Scenario seed offset",
+        "default": 0,
+        "min": -100000,
+        "max": 100000,
+        "step": 1
+      }
+    ],
+    "nativeDefaultScope": 4,
+    "nativeAvailable": true,
+    "nativeScopeNote": "Sparse 384-position plate; generic DNA assay, FAM plus YY reference/empty channel. Original assay-specific outcomes are not claimed.",
+    "legacyMechanism": "Edge wells lose water: concentrated dye raises their fluorescence through the run.",
+    "legacyArmable": true,
+    "nativeExecutable": true,
+    "implementation": "fortran/native_model.f90 and fortran/native_scenarios.f90",
+    "workflow": "Reduced generic probe assay with FAM/YY; legacy assay-specific SOP outcomes are not reproduced."
+  },
+  {
+    "code": 40,
+    "id": "hu-dna-amount",
+    "category": "4a",
+    "title": "Wrong DNA amount (template 16 × too low) (added)",
+    "kind": "native",
+    "editableParameters": [
+      {
+        "name": "Sample DNA divisor",
+        "default": 16,
+        "min": 1,
+        "max": 1000,
+        "step": 1
+      },
+      {
+        "name": "",
+        "default": 0,
+        "min": 0,
+        "max": 0,
+        "step": 0
+      },
+      {
+        "name": "",
+        "default": 0,
+        "min": 0,
+        "max": 0,
+        "step": 0
+      },
+      {
+        "name": "Affected-well scope code",
+        "default": 0,
+        "min": 0,
+        "max": 6,
+        "step": 1
+      },
+      {
+        "name": "Well mask (0=scope, bits 1-14)",
+        "default": 0,
+        "min": 0,
+        "max": 16383,
+        "step": 1
+      },
+      {
+        "name": "Scenario seed offset",
+        "default": 0,
+        "min": -100000,
+        "max": 100000,
+        "step": 1
+      }
+    ],
+    "nativeDefaultScope": 2,
+    "nativeAvailable": true,
+    "nativeScopeNote": "Sparse 384-position plate; generic DNA assay, FAM plus YY reference/empty channel. Original assay-specific outcomes are not claimed.",
+    "legacyMechanism": "12.5 ng instead of 200 ng: reference gene later than Cq 27.",
+    "legacyArmable": true,
+    "nativeExecutable": true,
+    "implementation": "fortran/native_model.f90 and fortran/native_scenarios.f90",
+    "workflow": "Reduced generic probe assay with FAM/YY; legacy assay-specific SOP outcomes are not reproduced."
+  },
+  {
+    "code": 41,
+    "id": "hu-bubbles",
+    "category": "4b",
+    "title": "Air bubbles in wells",
+    "kind": "injected",
+    "editableParameters": [
+      {
+        "name": "Number of bubbles / affected well",
+        "default": 1,
+        "min": 1,
+        "max": 4,
+        "step": 1
+      },
+      {
+        "name": "Signal loss at bubble",
+        "default": 0.65,
+        "min": 0,
+        "max": 0.95,
+        "step": 0.05
+      },
+      {
+        "name": "First bubble cycle",
+        "default": 12,
+        "min": 5,
+        "max": 40,
+        "step": 1
+      },
+      {
+        "name": "Affected-well scope code",
+        "default": 0,
+        "min": 0,
+        "max": 6,
+        "step": 1
+      },
+      {
+        "name": "Well mask (0=scope, bits 1-14)",
+        "default": 0,
+        "min": 0,
+        "max": 16383,
+        "step": 1
+      },
+      {
+        "name": "Scenario seed offset",
+        "default": 0,
+        "min": -100000,
+        "max": 100000,
+        "step": 1
+      }
+    ],
+    "nativeDefaultScope": 2,
+    "nativeAvailable": true,
+    "nativeScopeNote": "Sparse 384-position plate; generic DNA assay, FAM plus YY reference/empty channel. Original assay-specific outcomes are not claimed.",
+    "legacyMechanism": "A bubble scatters light for one reading and then lenses it: a dip followed by a jump.",
+    "legacyArmable": true,
+    "nativeExecutable": true,
+    "implementation": "fortran/native_model.f90 and fortran/native_scenarios.f90",
+    "workflow": "Reduced generic probe assay with FAM/YY; legacy assay-specific SOP outcomes are not reproduced."
+  },
+  {
+    "code": 42,
+    "id": "hu-pipetting",
+    "category": "4b",
+    "title": "Pipetting volume inaccuracy (CV 30 %)",
+    "kind": "native",
+    "editableParameters": [
+      {
+        "name": "Pipetting CV (percent)",
+        "default": 30,
+        "min": 0,
+        "max": 80,
+        "step": 5
+      },
+      {
+        "name": "",
+        "default": 0,
+        "min": 0,
+        "max": 0,
+        "step": 0
+      },
+      {
+        "name": "",
+        "default": 0,
+        "min": 0,
+        "max": 0,
+        "step": 0
+      },
+      {
+        "name": "Affected-well scope code",
+        "default": 0,
+        "min": 0,
+        "max": 6,
+        "step": 1
+      },
+      {
+        "name": "Well mask (0=scope, bits 1-14)",
+        "default": 0,
+        "min": 0,
+        "max": 16383,
+        "step": 1
+      },
+      {
+        "name": "Scenario seed offset",
+        "default": 0,
+        "min": -100000,
+        "max": 100000,
+        "step": 1
+      }
+    ],
+    "nativeDefaultScope": 2,
+    "nativeAvailable": true,
+    "nativeScopeNote": "Sparse 384-position plate; generic DNA assay, FAM plus YY reference/empty channel. Original assay-specific outcomes are not claimed.",
+    "legacyMechanism": "Uncalibrated pipette: template and mix volumes scatter from tube to tube.",
+    "legacyArmable": true,
+    "nativeExecutable": true,
+    "implementation": "fortran/native_model.f90 and fortran/native_scenarios.f90",
+    "workflow": "Reduced generic probe assay with FAM/YY; legacy assay-specific SOP outcomes are not reproduced."
+  },
+  {
+    "code": 43,
+    "id": "hu-aerosol",
+    "category": "4b",
+    "title": "Aerosol cross-contamination (amplicon carry-over, UNG off)",
+    "kind": "native",
+    "editableParameters": [
+      {
+        "name": "Contamination copies",
+        "default": 60,
+        "min": 1,
+        "max": 10000,
+        "step": 10
+      },
+      {
+        "name": "",
+        "default": 0,
+        "min": 0,
+        "max": 0,
+        "step": 0
+      },
+      {
+        "name": "",
+        "default": 0,
+        "min": 0,
+        "max": 0,
+        "step": 0
+      },
+      {
+        "name": "Affected-well scope code",
+        "default": 0,
+        "min": 0,
+        "max": 6,
+        "step": 1
+      },
+      {
+        "name": "Well mask (0=scope, bits 1-14)",
+        "default": 0,
+        "min": 0,
+        "max": 16383,
+        "step": 1
+      },
+      {
+        "name": "Scenario seed offset",
+        "default": 0,
+        "min": -100000,
+        "max": 100000,
+        "step": 1
+      }
+    ],
+    "nativeDefaultScope": 6,
+    "nativeAvailable": true,
+    "nativeScopeNote": "Sparse 384-position plate; generic DNA assay, FAM plus YY reference/empty channel. Original assay-specific outcomes are not claimed.",
+    "legacyMechanism": "2 000 amplicon copies reach every tube; nothing destroys them.",
+    "legacyArmable": true,
+    "nativeExecutable": true,
+    "implementation": "fortran/native_model.f90 and fortran/native_scenarios.f90",
+    "workflow": "Reduced generic probe assay with FAM/YY; legacy assay-specific SOP outcomes are not reproduced."
+  },
+  {
+    "code": 44,
+    "id": "hu-mixing",
+    "category": "4b",
+    "title": "Incomplete master-mix homogenisation (gradient across columns)",
+    "kind": "native",
+    "editableParameters": [
+      {
+        "name": "Far-column concentration fraction",
+        "default": 0.35,
+        "min": 0.05,
+        "max": 1,
+        "step": 0.05
+      },
+      {
+        "name": "",
+        "default": 0,
+        "min": 0,
+        "max": 0,
+        "step": 0
+      },
+      {
+        "name": "",
+        "default": 0,
+        "min": 0,
+        "max": 0,
+        "step": 0
+      },
+      {
+        "name": "Affected-well scope code",
+        "default": 0,
+        "min": 0,
+        "max": 6,
+        "step": 1
+      },
+      {
+        "name": "Well mask (0=scope, bits 1-14)",
+        "default": 0,
+        "min": 0,
+        "max": 16383,
+        "step": 1
+      },
+      {
+        "name": "Scenario seed offset",
+        "default": 0,
+        "min": -100000,
+        "max": 100000,
+        "step": 1
+      }
+    ],
+    "nativeDefaultScope": 2,
+    "nativeAvailable": true,
+    "nativeScopeNote": "Sparse 384-position plate; generic DNA assay, FAM plus YY reference/empty channel. Original assay-specific outcomes are not claimed.",
+    "legacyMechanism": "The mix was not vortexed: primer and enzyme concentration drift from the first to the last column dispensed.",
+    "legacyArmable": true,
+    "nativeExecutable": true,
+    "implementation": "fortran/native_model.f90 and fortran/native_scenarios.f90",
+    "workflow": "Reduced generic probe assay with FAM/YY; legacy assay-specific SOP outcomes are not reproduced."
+  },
+  {
+    "code": 45,
+    "id": "hu-droplets",
+    "category": "4b",
+    "title": "Droplets on well walls (template enters 4 cycles late)",
+    "kind": "injected",
+    "editableParameters": [
+      {
+        "name": "Template entry delay (cycles)",
+        "default": 4,
+        "min": 1,
+        "max": 12,
+        "step": 1
+      },
+      {
+        "name": "",
+        "default": 0,
+        "min": 0,
+        "max": 0,
+        "step": 0
+      },
+      {
+        "name": "",
+        "default": 0,
+        "min": 0,
+        "max": 0,
+        "step": 0
+      },
+      {
+        "name": "Affected-well scope code",
+        "default": 0,
+        "min": 0,
+        "max": 6,
+        "step": 1
+      },
+      {
+        "name": "Well mask (0=scope, bits 1-14)",
+        "default": 0,
+        "min": 0,
+        "max": 16383,
+        "step": 1
+      },
+      {
+        "name": "Scenario seed offset",
+        "default": 0,
+        "min": -100000,
+        "max": 100000,
+        "step": 1
+      }
+    ],
+    "nativeDefaultScope": 2,
+    "nativeAvailable": true,
+    "nativeScopeNote": "Sparse 384-position plate; generic DNA assay, FAM plus YY reference/empty channel. Original assay-specific outcomes are not claimed.",
+    "legacyMechanism": "Template hangs on the wall until condensation washes it down.",
+    "legacyArmable": true,
+    "nativeExecutable": true,
+    "implementation": "fortran/native_model.f90 and fortran/native_scenarios.f90",
+    "workflow": "Reduced generic probe assay with FAM/YY; legacy assay-specific SOP outcomes are not reproduced."
+  },
+  {
+    "code": 46,
+    "id": "hu-no-spin",
+    "category": "4b",
+    "title": "Plate not centrifuged",
+    "kind": "injected",
+    "editableParameters": [
+      {
+        "name": "Baseline offset (counts)",
+        "default": 80,
+        "min": 0,
+        "max": 500,
+        "step": 20
+      },
+      {
+        "name": "Template entry delay (cycles)",
+        "default": 2,
+        "min": 0,
+        "max": 10,
+        "step": 1
+      },
+      {
+        "name": "Early-cycle spike counts",
+        "default": 200,
+        "min": 0,
+        "max": 1000,
+        "step": 50
+      },
+      {
+        "name": "Affected-well scope code",
+        "default": 0,
+        "min": 0,
+        "max": 6,
+        "step": 1
+      },
+      {
+        "name": "Well mask (0=scope, bits 1-14)",
+        "default": 0,
+        "min": 0,
+        "max": 16383,
+        "step": 1
+      },
+      {
+        "name": "Scenario seed offset",
+        "default": 0,
+        "min": -100000,
+        "max": 100000,
+        "step": 1
+      }
+    ],
+    "nativeDefaultScope": 2,
+    "nativeAvailable": true,
+    "nativeScopeNote": "Sparse 384-position plate; generic DNA assay, FAM plus YY reference/empty channel. Original assay-specific outcomes are not claimed.",
+    "legacyMechanism": "Bubbles and droplets together in a quarter of the sample wells.",
+    "legacyArmable": true,
+    "nativeExecutable": true,
+    "implementation": "fortran/native_model.f90 and fortran/native_scenarios.f90",
+    "workflow": "Reduced generic probe assay with FAM/YY; legacy assay-specific SOP outcomes are not reproduced."
+  },
+  {
+    "code": 47,
+    "id": "in-nonsigmoid",
+    "category": "4c",
+    "title": "Accepting non-sigmoidal curves (baseline creep in negatives)",
+    "kind": "injected",
+    "editableParameters": [
+      {
+        "name": "Negative-control creep / cycle",
+        "default": 10,
+        "min": 0,
+        "max": 50,
+        "step": 1
+      },
+      {
+        "name": "Creep starts at cycle",
+        "default": 15,
+        "min": 1,
+        "max": 40,
+        "step": 1
+      },
+      {
+        "name": "",
+        "default": 0,
+        "min": 0,
+        "max": 0,
+        "step": 0
+      },
+      {
+        "name": "Affected-well scope code",
+        "default": 0,
+        "min": 0,
+        "max": 6,
+        "step": 1
+      },
+      {
+        "name": "Well mask (0=scope, bits 1-14)",
+        "default": 0,
+        "min": 0,
+        "max": 16383,
+        "step": 1
+      },
+      {
+        "name": "Scenario seed offset",
+        "default": 0,
+        "min": -100000,
+        "max": 100000,
+        "step": 1
+      }
+    ],
+    "nativeDefaultScope": 6,
+    "nativeAvailable": true,
+    "nativeScopeNote": "Sparse 384-position plate; generic DNA assay, FAM plus YY reference/empty channel. Original assay-specific outcomes are not claimed.",
+    "legacyMechanism": "NTC and blank drift upward linearly from cycle 15: a fixed threshold calls a 'Cq', the second-derivative method does not.",
+    "legacyArmable": true,
+    "nativeExecutable": true,
+    "implementation": "fortran/native_model.f90 and fortran/native_scenarios.f90",
+    "workflow": "Reduced generic probe assay with FAM/YY; legacy assay-specific SOP outcomes are not reproduced."
+  },
+  {
+    "code": 48,
+    "id": "in-efficiency",
+    "category": "4c",
+    "title": "Ignoring amplification efficiency (event assay at 88 % of the reference efficiency)",
+    "kind": "native",
+    "editableParameters": [
+      {
+        "name": "Target / reference efficiency ratio",
+        "default": 0.88,
+        "min": 0.3,
+        "max": 1,
+        "step": 0.02
+      },
+      {
+        "name": "",
+        "default": 0,
+        "min": 0,
+        "max": 0,
+        "step": 0
+      },
+      {
+        "name": "",
+        "default": 0,
+        "min": 0,
+        "max": 0,
+        "step": 0
+      },
+      {
+        "name": "Affected-well scope code",
+        "default": 0,
+        "min": 0,
+        "max": 6,
+        "step": 1
+      },
+      {
+        "name": "Well mask (0=scope, bits 1-14)",
+        "default": 0,
+        "min": 0,
+        "max": 16383,
+        "step": 1
+      },
+      {
+        "name": "Scenario seed offset",
+        "default": 0,
+        "min": -100000,
+        "max": 100000,
+        "step": 1
+      }
+    ],
+    "nativeDefaultScope": 2,
+    "nativeAvailable": true,
+    "nativeScopeNote": "Sparse 384-position plate; generic DNA assay, FAM plus YY reference/empty channel. Original assay-specific outcomes are not claimed.",
+    "legacyMechanism": "Target and reference no longer amplify alike: the ΔCq-based GM % is biased although the calibrants look fine.",
+    "legacyArmable": true,
+    "nativeExecutable": true,
+    "implementation": "fortran/native_model.f90 and fortran/native_scenarios.f90",
+    "workflow": "Reduced generic probe assay with FAM/YY; legacy assay-specific SOP outcomes are not reproduced."
+  },
+  {
+    "code": 49,
+    "id": "in-highcq",
+    "category": "4c",
+    "title": "Misinterpreting high Cq values (sample at 1/40 of the GM content)",
+    "kind": "native",
+    "editableParameters": [
+      {
+        "name": "Target DNA divisor",
+        "default": 40,
+        "min": 1,
+        "max": 1000,
+        "step": 5
+      },
+      {
+        "name": "",
+        "default": 0,
+        "min": 0,
+        "max": 0,
+        "step": 0
+      },
+      {
+        "name": "",
+        "default": 0,
+        "min": 0,
+        "max": 0,
+        "step": 0
+      },
+      {
+        "name": "Affected-well scope code",
+        "default": 0,
+        "min": 0,
+        "max": 6,
+        "step": 1
+      },
+      {
+        "name": "Well mask (0=scope, bits 1-14)",
+        "default": 0,
+        "min": 0,
+        "max": 16383,
+        "step": 1
+      },
+      {
+        "name": "Scenario seed offset",
+        "default": 0,
+        "min": -100000,
+        "max": 100000,
+        "step": 1
+      }
+    ],
+    "nativeDefaultScope": 2,
+    "nativeAvailable": true,
+    "nativeScopeNote": "Sparse 384-position plate; generic DNA assay, FAM plus YY reference/empty channel. Original assay-specific outcomes are not claimed.",
+    "legacyMechanism": "Few target copies: stochastic Cq 36–40, some replicates empty.",
+    "legacyArmable": true,
+    "nativeExecutable": true,
+    "implementation": "fortran/native_model.f90 and fortran/native_scenarios.f90",
+    "workflow": "Reduced generic probe assay with FAM/YY; legacy assay-specific SOP outcomes are not reproduced."
+  },
+  {
+    "code": 50,
+    "id": "in-blank",
+    "category": "4c",
+    "title": "Overlooking extraction contamination (in place of gDNA in −RT controls)",
+    "kind": "native",
+    "editableParameters": [
+      {
+        "name": "Copies in extraction blank",
+        "default": 60,
+        "min": 1,
+        "max": 10000,
+        "step": 10
+      },
+      {
+        "name": "",
+        "default": 0,
+        "min": 0,
+        "max": 0,
+        "step": 0
+      },
+      {
+        "name": "",
+        "default": 0,
+        "min": 0,
+        "max": 0,
+        "step": 0
+      },
+      {
+        "name": "Affected-well scope code",
+        "default": 0,
+        "min": 0,
+        "max": 6,
+        "step": 1
+      },
+      {
+        "name": "Well mask (0=scope, bits 1-14)",
+        "default": 0,
+        "min": 0,
+        "max": 16383,
+        "step": 1
+      },
+      {
+        "name": "Scenario seed offset",
+        "default": 0,
+        "min": -100000,
+        "max": 100000,
+        "step": 1
+      }
+    ],
+    "nativeDefaultScope": 6,
+    "nativeAvailable": true,
+    "nativeScopeNote": "Sparse 384-position plate; generic DNA assay, FAM plus YY reference/empty channel. Original assay-specific outcomes are not claimed.",
+    "legacyMechanism": "The workbench is a DNA method (no reverse transcription); the analogous control is the extraction blank, here contaminated with 60 GM copies.",
+    "legacyArmable": true,
+    "nativeExecutable": true,
+    "implementation": "fortran/native_model.f90 and fortran/native_scenarios.f90",
+    "workflow": "Reduced generic probe assay with FAM/YY; legacy assay-specific SOP outcomes are not reproduced."
+  },
+  {
+    "code": 51,
+    "id": "in-refgene",
+    "category": "4c",
+    "title": "Unstable reference gene (reference varies ±1.6 cycles by extract)",
+    "kind": "native",
+    "editableParameters": [
+      {
+        "name": "Reference variation (+/- cycles)",
+        "default": 1.6,
+        "min": 0,
+        "max": 5,
+        "step": 0.2
+      },
+      {
+        "name": "",
+        "default": 0,
+        "min": 0,
+        "max": 0,
+        "step": 0
+      },
+      {
+        "name": "",
+        "default": 0,
+        "min": 0,
+        "max": 0,
+        "step": 0
+      },
+      {
+        "name": "Affected-well scope code",
+        "default": 0,
+        "min": 0,
+        "max": 6,
+        "step": 1
+      },
+      {
+        "name": "Well mask (0=scope, bits 1-14)",
+        "default": 0,
+        "min": 0,
+        "max": 16383,
+        "step": 1
+      },
+      {
+        "name": "Scenario seed offset",
+        "default": 0,
+        "min": -100000,
+        "max": 100000,
+        "step": 1
+      }
+    ],
+    "nativeDefaultScope": 2,
+    "nativeAvailable": true,
+    "nativeScopeNote": "Sparse 384-position plate; generic DNA assay, FAM plus YY reference/empty channel. Original assay-specific outcomes are not claimed.",
+    "legacyMechanism": "The reference target moves between extracts while the elements do not: normalisation adds error.",
+    "legacyArmable": true,
+    "nativeExecutable": true,
+    "implementation": "fortran/native_model.f90 and fortran/native_scenarios.f90",
+    "workflow": "Reduced generic probe assay with FAM/YY; legacy assay-specific SOP outcomes are not reproduced."
+  }
+]

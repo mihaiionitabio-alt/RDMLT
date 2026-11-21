@@ -1,0 +1,12 @@
+{
+  "format": "missy-native-profile/2",
+  "runs": 20,
+  "extractions": 1,
+  "replicates": 1,
+  "copies": 30000,
+  "threshold": 150,
+  "seed": 11,
+  "fault": 0,
+  "speed": 5000,
+  "scenario": 0
+}

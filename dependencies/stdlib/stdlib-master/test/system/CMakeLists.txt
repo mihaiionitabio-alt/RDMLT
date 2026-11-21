@@ -1,0 +1,6 @@
+ADDTEST(filesystem)
+ADDTEST(os)
+ADDTEST(sleep)
+ADDTEST(subprocess)
+ADDTEST(path)
+ADDTEST(load_library)

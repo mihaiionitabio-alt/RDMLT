@@ -1,0 +1,14 @@
+{
+  "stdlib": {
+    "version": "0.8.1",
+    "license": "MIT",
+    "source": "user-supplied stdlib-master.zip",
+    "archiveSha256": "a7a6bba33a3b651061c6bc567ea3c70d5c7322b5c180d976310b11988b205fb4"
+  },
+  "json-fortran": {
+    "version": "9.0.5",
+    "license": "BSD-3-Clause",
+    "source": "https://github.com/jacobwilliams/json-fortran/archive/refs/tags/9.0.5.zip",
+    "archiveSha256": "7cdc711efbc68494c775af1ec79002acc5dcb13bc1e11f2cbbd335119a12d5c6"
+  }
+}
