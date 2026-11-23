@@ -1,6 +1,7 @@
 program scenario_driver
 use native_model
 use native_io
+use native_rdmlt
 use stdlib_browser_stats
 implicit none
 integer::code,i,j,u,steps,oldnh

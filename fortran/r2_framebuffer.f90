@@ -84,7 +84,12 @@ contains
     integer :: i,k,out(4),src,dst
     real(c_double) :: a
     if(x<0 .or. x>=fw .or. y<0 .or. y>=fh) return
-    i=y*fw+x+1; a=max(0.0_c_double,min(1.0_c_double,coverage))*ibits(color,24,8)/255.0_c_double
+    i=y*fw+x+1
+    ! Opaque colour at full coverage: the blend below would return the colour itself.
+    if(coverage>=1.0_c_double .and. ibits(color,24,8)==255) then
+      pixels(i)=color; return
+    end if
+    a=max(0.0_c_double,min(1.0_c_double,coverage))*ibits(color,24,8)/255.0_c_double
     do k=0,2
       src=ibits(color,k*8,8); dst=ibits(pixels(i),k*8,8)
       out(k+1)=nint(src*a+dst*(1-a))

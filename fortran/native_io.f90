@@ -5,17 +5,60 @@ module native_io
  use native_model
  use json_fortran_browser_strings, only:escape_string,lowercase_string
  implicit none
- integer,parameter::cap=33554432,input_cap=4194304
- integer(c_int8_t),target,save::output(cap)
+ integer,parameter::cap=33554432,input_cap=67108864,max_output=1073741824
+ ! Package bytes for the host; grows on demand (the host reads the pointer after each export).
+ integer(c_int8_t),allocatable,target,save::output(:)
  integer,save::output_size=0,name_size=0
  character(c_char),target,save::output_name(80)
- character(len=2097152),save::work
+ ! Export text buffer, allocated once at startup (a static buffer would be embedded in the module as blanks).
+ integer,parameter::work_cap=50331648
+ character(len=:),allocatable,save::work
  integer,save::used=0
+ integer(c_int64_t),save::crc_table(0:255)=0
+ logical,save::crc_ready=.false.
 contains
+! @nativefn NR2-M02-F0030
+ subroutine crc_init()
+  ! Standard reflected CRC-32 table (polynomial EDB88320); results equal the bitwise loop.
+  integer(c_int64_t)::c
+  integer::n,k
+  do n=0,255
+   c=int(n,c_int64_t)
+   do k=1,8
+    if(iand(c,1_c_int64_t)/=0)then
+     c=ieor(shiftr(c,1),3988292384_c_int64_t)
+    else
+     c=shiftr(c,1)
+    end if
+   end do
+   crc_table(n)=c
+  end do
+  crc_ready=.true.
+ end subroutine
+! @nativefn NR2-M02-F0032
+ subroutine ensure_output(n)
+  ! Capacity of at least n bytes, doubling, keeping the bytes already written.
+  integer,intent(in)::n
+  integer(c_int8_t),allocatable::t(:)
+  integer::m
+  if(.not.allocated(output))allocate(output(cap))
+  if(size(output)>=n)return
+  m=size(output)
+  do while(m<n.and.m<max_output)
+   m=min(max_output,2*m)
+  end do
+  if(m<n)return
+  allocate(t(m));t(1:output_size)=output(1:output_size);call move_alloc(t,output)
+ end subroutine
+! @nativefn NR2-M02-F0031
+ subroutine ensure_work()
+  if(.not.allocated(work))allocate(character(len=work_cap)::work)
+ end subroutine
 ! @nativefn NR2-M02-F0001
  subroutine add(s)
   character(len=*),intent(in)::s
   integer::n
+  call ensure_work()
   n=len_trim(s)
   if(used+n>len(work))then
    message='Export exceeds the native buffer limit.';return
@@ -39,7 +82,9 @@ contains
  subroutine put_byte(v)
   integer,intent(in)::v
   integer::b
-  if(output_size>=cap)return
+  if(.not.allocated(output))call ensure_output(cap)
+  if(output_size>=size(output))call ensure_output(output_size+1)
+  if(output_size>=size(output))return
   b=iand(v,255);if(b>127)b=b-256
   output_size=output_size+1;output(output_size)=int(b,c_int8_t)
  end subroutine
@@ -59,6 +104,12 @@ contains
   integer(c_int64_t)::c
   integer::i,j
   c=4294967295_c_int64_t
+  if(crc_ready)then
+   do i=1,n
+    c=ieor(crc_table(iand(ieor(c,int(iachar(s(i:i)),c_int64_t)),255_c_int64_t)),shiftr(c,8))
+   end do
+   crc=ieor(c,4294967295_c_int64_t);return
+  end if
   do i=1,n
    c=ieor(c,int(iachar(s(i:i)),c_int64_t))
    do j=1,8
@@ -213,7 +264,7 @@ contains
   call add('</run></experiment></rdml>')
  end subroutine
 ! @nativefn NR2-M02-F0011
- subroutine export_run(r)
+ subroutine export_run_reduced(r)
   type(run_t),intent(in)::r
   character(len=40)::names(4)
   integer::offsets(4),sizes(4),i,j
@@ -257,7 +308,7 @@ contains
   call set_name('MISSY_native_run_'//trim(integer_text(r%serial))//'.rdmlt')
  end subroutine
 ! @nativefn NR2-M02-F0021
- subroutine export_all_runs()
+ subroutine export_all_runs_reduced()
   integer(c_int8_t),allocatable::bundle(:)
   character(len=40)::names(maxruns)
   integer::offsets(maxruns),sizes(maxruns),i,j,n,outer_size
@@ -265,9 +316,9 @@ contains
   if(nh==0)then
    output_size=0;message='No stored virtual runs to export.';return
   end if
-  allocate(bundle(cap));outer_size=0
+  call ensure_output(cap);allocate(bundle(cap));outer_size=0
   do i=1,nh
-   call export_run(history(i));n=output_size
+   call export_run_reduced(history(i));n=output_size
    if(n>len(work).or.outer_size+n+200*(nh+1)>cap)then
     output_size=0;message='Run archive exceeds the export buffer. Export runs individually.'
     deallocate(bundle);return
@@ -579,8 +630,9 @@ contains
    message='Stop generation before importing files.';return
   end if
   if(n<2.or.n>input_cap)then
-   message='File empty or larger than the 4 MiB native input limit.';return
+   message='File empty or larger than the 64 MiB native input limit.';return
   end if
+  call ensure_work()
   lead=1
   do while(lead<n)
    if(index(' '//achar(9)//achar(10)//achar(13),achar(byte_at(a,lead)))==0)exit
@@ -595,14 +647,18 @@ contains
    end do
    call parse_profile(work,n);return
   end if
-  message='This reduced edition imports only its own uncompressed native RDMLt packages.'
+  message='This edition imports only its own native RDMLt packages (native-run.txt entry).'
   p=1;record_start=0;record_size=0;entries=0
   do while(p+29<=n)
    if(read_int(a,p,4)/=int(z'04034B50',c_int64_t))exit
    flags=int(read_int(a,p+6,2));method=int(read_int(a,p+8,2));crc=read_int(a,p+14,4)
    sz=int(read_int(a,p+18,4));namelen=int(read_int(a,p+26,2));extra=int(read_int(a,p+28,2));start=p+30+namelen+extra
-   if(flags/=0.or.method/=0.or.sz<0.or.namelen>100.or.start<1)return
+   if(flags/=0.or.(method/=0.and.method/=8).or.sz<0.or.namelen>100.or.start<1)return
    if(int(start,c_int64_t)+int(sz,c_int64_t)>int(n,c_int64_t)+1)return
+   if(method==8)then
+    ! Compressed companion entries are not needed to restore a run; native-run.txt is always stored.
+    entries=entries+1;p=start+sz;cycle
+   end if
    if(read_int(a,p+22,4)/=int(sz,c_int64_t))return
    name=''
    do j=1,namelen

@@ -20,7 +20,7 @@ def main():
     parser.add_argument("--wasm", action="store_true")
     options = parser.parse_args()
     BUILD.mkdir(parents=True, exist_ok=True)
-    files = [SRC / ("r2_" + name + ".f90") for name in ORDER] + [SRC / (name + ".f90") for name in ["json_fortran_browser_strings","stdlib_browser_stats","native_scenarios","native_model","native_io","native_ui"]]
+    files = [SRC / ("r2_" + name + ".f90") for name in ORDER] + [SRC / (name + ".f90") for name in ["json_fortran_browser_strings","stdlib_browser_stats","native_scenarios","native_model","native_codec","native_io","native_rdmlt","native_references","native_ui"]]
     source = "\n".join(p.read_text(encoding="utf-8") for p in files)
     if options.native:
         native_mods=BUILD/"gnu-modules"
@@ -43,6 +43,7 @@ def main():
         run(["emcc", BUILD / "r2.o", runtime, "-O0", "--no-entry", "-sSINGLE_FILE=1", "-sMODULARIZE=1",
              "-sEXPORT_NAME=R2FortranModule", "-sWASM_ASYNC_COMPILATION=0", "-sALLOW_MEMORY_GROWTH=1",
              "-sENVIRONMENT=web,node", "-sSTACK_SIZE=8388608", "-sINITIAL_MEMORY=67108864",
+             "-sEXPORTED_RUNTIME_METHODS=HEAPU8",
              "-sEXPORTED_FUNCTIONS=" + json.dumps(["_" + n for n in exports] + ["_malloc", "_free"]),
              "-o", target])
         info = {"schema": "missy-r2-fortran-build/1", "sourceSha256": hashlib.sha256(source.encode()).hexdigest(),

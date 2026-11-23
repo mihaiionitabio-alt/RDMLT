@@ -4,15 +4,40 @@ module native_ui
  use iso_c_binding
  use native_model
  use native_io
+ use native_rdmlt
  use r2_framebuffer
  use r2_font
  use stdlib_browser_stats
+ use native_codec, only: sha256_hex, deflate_fixed, zlen
+ use native_references
+ use native_scenarios
+ use r2_math, only: rng_uniform, rng_gauss
+ use r2_thermal
+ use r2_chemistry
+ use r2_monitor
+ use r2_optics
  implicit none
- integer,save::width=1280,height=820,page=0,graphmode=0,catalog_page=0,edit_param=0,nb=0,buttons(7,80)=0,request=0
+ integer,save::width=1280,height=820,page=-1,graphmode=0,catalog_page=0,edit_param=0,nb=0,buttons(7,80)=0,request=0
  character(len=24),save::edit_buffer=''
  logical,save::show_group(5,maxruns)=.true.,show_name(maxw,maxruns)=.true.
  logical,save::dirty=.true.,dragging=.false.
  real(c_double),save::mx=-1,my=-1,zoom=1,pan=0,lastx=0
+ ! Startup screen: one embedded component per frame, entry only after all are ready.
+ integer,parameter::nboot=25
+ integer,parameter::boot_last(5)=[3,10,14,20,25]
+ character(len=56),parameter::boot_label(nboot)=[character(len=56):: 'Display surface and framebuffer', &
+  'Bitmap font atlas (1531 glyphs)','Interface palette, layout and button tables','Seeded random number streams', &
+  'Statistics library (stdlib mean and variance)','Thermal plant model and PID controller', &
+  'Independent dual-sensor temperature monitor','Reaction kinetics (10-bin chemistry model)', &
+  'Hydrolysis probe and detector optics','Cq threshold analysis','Scenario identifiers, titles and kinds (51)', &
+  'Scenario parameter labels and bounds','Scenario default parameter bank (51 x 6)','Native profile defaults', &
+  'Run history store (32 runs)','CRC-32 lookup table','SHA-256 message digest','DEFLATE compressor (fixed Huffman, LZ77)', &
+  'ZIP and RDMLt export buffers','References and edition notes (115 entries)','Home and navigation', &
+  'Virtual PCR acquisition view and charts','Results and curve selection','Profile, scenario catalogue and editors', &
+  'References page']
+ integer,save::boot_next=1,boot_pending=0,boot_failed=0,ref_page=0
+ real(c_double),save::boot_anim=0,boot_ms=0,boot_el(0:nboot)=0,host_ms=-1,host_mb=-1,boot_done_ms=0
+ logical,save::booted=.false.
  integer(c_int32_t),parameter::bg=int(z'FF10090D',c_int32_t),orange=int(z'FF649BFF',c_int32_t)
  integer(c_int32_t),parameter::purple=int(z'FFC99ACB',c_int32_t),ink=int(z'FFF3E0EA',c_int32_t)
  integer(c_int32_t),parameter::panel=int(z'FF281723',c_int32_t),cyan=int(z'FFDCDC60',c_int32_t)
@@ -22,10 +47,11 @@ contains
   character(len=*),intent(in)::s
   integer,intent(in)::x,y,scale
   integer(c_int32_t),intent(in)::color
-  integer::i,g,xx,yy,k,l,advance,level,copies
-  advance=0;copies=scale*render_scale/2
-  do i=1,len_trim(s)
-   g=glyph(iachar(s(i:i)))
+  integer::i,g,xx,yy,k,l,advance,level,copies,code,step
+  advance=0;copies=scale*render_scale/2;i=1
+  do while(i<=len_trim(s))
+   call utf8_code(s,i,code,step);i=i+step
+   g=glyph(code)
    do yy=0,font_height-1
     do xx=0,font_width-1
      level=int(iand(shiftr(glyph_rows((g-1)*font_height+yy+1),2*xx),3_c_int64_t))
@@ -39,6 +65,22 @@ contains
    end do
    advance=advance+glyph_advance(g)*copies
   end do
+ end subroutine
+! @nativefn NR2-M03-F0040
+ subroutine utf8_code(s,i,code,step)
+  ! Decodes one UTF-8 sequence at s(i:); malformed bytes are shown as single characters.
+  character(len=*),intent(in)::s
+  integer,intent(in)::i
+  integer,intent(out)::code,step
+  integer::b,n
+  n=len_trim(s);b=iachar(s(i:i));code=b;step=1
+  if(b>=240.and.i+3<=n)then
+   code=iand(b,7)*262144+iand(iachar(s(i+1:i+1)),63)*4096+iand(iachar(s(i+2:i+2)),63)*64+iand(iachar(s(i+3:i+3)),63);step=4
+  else if(b>=224.and.i+2<=n)then
+   code=iand(b,15)*4096+iand(iachar(s(i+1:i+1)),63)*64+iand(iachar(s(i+2:i+2)),63);step=3
+  else if(b>=192.and.i+1<=n)then
+   code=iand(b,31)*64+iand(iachar(s(i+1:i+1)),63);step=2
+  end if
  end subroutine
 ! @nativefn NR2-M03-F0041
  subroutine soft_panel(x,y,w,h,r,c)
@@ -360,12 +402,453 @@ contains
   call button(2,0,'Run selected case',700,655,220,44,.not.running.and.scenario_available(p_scenario))
   if(p_scenario==21)call label('Not reproducible: requires an intercalating-dye melt acquisition workflow.',60,710,orange,1)
  end subroutine
+! ---------------------------------------------------------------- startup screen
+! @nativefn NR2-M03-F0050
+ subroutine boot_step(k)
+  ! One embedded component per frame. Each step loads or prepares real data; three steps
+  ! carry known-answer checks (CRC-32, SHA-256, DEFLATE) and stop startup if they fail.
+  integer,intent(in)::k
+  real(c_double)::st,v(4096),x(19),cfg(4),s(4),c(34),a(14),pr(6),y(45),cq,mon(6),obs(6),mcfg(5),out(4),q
+  integer::i,n,code
+  character(len=2000)::sample
+  logical::ok
+  select case(k)
+  case(1)
+   call allocate_frame(width,height,bg)
+  case(2)
+   n=0
+   do i=1,font_count
+    if(any(glyph_rows((i-1)*font_height+1:i*font_height)/=0))n=n+1
+   end do
+   if(n<95)boot_failed=k
+  case(3)
+   buttons=0;nb=0
+  case(4)
+   st=real(p_seed,c_double)
+   do i=1,size(v)
+    v(i)=rng_uniform(st)
+   end do
+   if(minval(v)<0.or.maxval(v)>=1)boot_failed=k
+  case(5)
+   st=17
+   do i=1,size(v)
+    v(i)=rng_gauss(st)
+   end do
+   q=stdlib_mean(v);if(abs(q)>0.1d0.or.abs(stdlib_var(v)-1)>0.1d0)boot_failed=k
+  case(6)
+   x=0;x(1:7)=25;x(11)=.5d0;x(12)=1;cfg=[.55d0,.25d0,.06d0,.08d0];s=0
+   do i=1,2000
+    x(8)=r2_pid_step(cfg,s,95d0,x(1),.05d0,.0045d0);x(9)=x(8);call r2_thermal_step(x)
+   end do
+  case(7)
+   mon=0;mon(2)=-1;mcfg=[2d0,2000d0,1000d0,-5d0,103d0]
+   do i=1,200
+    obs=[25d0,25d0,25d0,25d0,i*50d0,i*50d0];call r2_monitor_step(mon,obs,i*50d0,mcfg,out)
+   end do
+   if(out(4)/=0)boot_failed=k
+  case(8)
+   st=11;a=[1d0,30000d0,120d0,84d0,91d0,62d0,300d0,.95d0,.3d0,50d0,76d0,1d0,1d0,0d0]
+   call r2_chem_init(c,a,st)
+   do i=1,200
+    call r2_chem_step(c,a,95d0,.05d0,st)
+   end do
+  case(9)
+   call r2_probe_init(pr,200d0,0d0)
+   do i=1,200
+    call r2_probe_step(pr,1d6,60d0,200d0,0d0,30d0,300d0,70d0,1.5d0)
+   end do
+   q=r2_probe_counts(pr(1),pr(2),200d0,0d0,0d0,.96d0,10d0,0d0,60d0)
+  case(10)
+   do i=1,45
+    y(i)=360+1200/(1+exp(-(i-25d0)/1.6d0))
+   end do
+   call analyse_curve(y,45,150d0,cq);if(cq<20.or.cq>30)boot_failed=k
+  case(11)
+   n=0
+   do code=1,51
+    if(len_trim(scenario_ids(code))>0.and.len_trim(scenario_titles(code))>0)n=n+1
+   end do
+   if(n/=51)boot_failed=k
+  case(12)
+   n=count(len_trim(parameter_names)>0);if(n==0)boot_failed=k
+  case(13)
+   n=0
+   do code=1,51
+    if(parameters_valid(code,scenario_defaults(:,code)))n=n+1
+   end do
+   if(n/=51)boot_failed=k
+  case(14)
+   if(p_ext<1.or.p_rep<1.or.p_runs<1)boot_failed=k
+  case(15)
+   if(nh==0)then
+    do i=1,maxruns
+     history(i)=run_t()
+    end do
+   end if
+  case(16)
+   call crc_init();if(crc_text('123456789',9)/=3421780262_c_int64_t)boot_failed=k
+  case(17)
+   if(sha256_hex('abc',3)/='ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad')boot_failed=k
+  case(18)
+   do i=1,len(sample)
+    sample(i:i)=achar(48+mod(i*7,10))
+   end do
+   call deflate_fixed(sample,len(sample),ok);if(.not.ok.or.zlen<=0.or.zlen>=len(sample))boot_failed=k
+  case(19)
+   call ensure_work();work(1:1)=' ';call ensure_output(cap);output(1:cap)=0;output_size=0;used=0
+  case(20)
+   n=count(len_trim(ref_text)>0);if(n/=nref)boot_failed=k
+  case default
+   continue
+  end select
+ end subroutine
+! @nativefn NR2-M03-F0051
+ function boot_line(k) result(s)
+  integer,intent(in)::k
+  character(len=200)::s
+  character(len=8)::tag
+  tag='[LOADED]';if(k>20)tag='[READY] '
+  if(boot_failed==k)tag='[FAILED]'
+  s=trim(tag)//' '//d2(k)//'/'//d2(nboot)//' '//achar(194)//achar(183)//' '//trim(boot_label(k))//' '//achar(194)//achar(183)//' '// &
+   trim(real_text(boot_el(k),1))//' ms elapsed (+'//trim(real_text(boot_el(k)-boot_el(k-1),1))//' ms)'
+ contains
+  function d2(i) result(t)
+   integer,intent(in)::i
+   character(len=2)::t
+   t=achar(48+i/10)//achar(48+mod(i,10))
+  end function
+ end function
+! @nativefn NR2-M03-F0052
+ subroutine ring_segment(cx,cy,r0,r1,a0,a1,color,alpha)
+  ! Filled annulus sector with anti-aliased edges, drawn at device resolution.
+  real(c_double),intent(in)::cx,cy,r0,r1,a0,a1,alpha
+  integer(c_int32_t),intent(in)::color
+  integer::i,j,k
+  real(c_double)::px,py,r,ang,cov,ex,ey,dr,mid,half,bx0,bx1,by0,by1,t
+  mid=(a0+a1)/2;half=(a1-a0)/2
+  ! Bounding box of this sector only (sampled along both arcs), so each segment scans its own area.
+  bx0=huge(1d0);bx1=-huge(1d0);by0=huge(1d0);by1=-huge(1d0)
+  do k=0,32
+   t=(a0-2+(a1-a0+4)*k/32d0)/57.29577951308232d0
+   bx0=min(bx0,cx+r0*cos(t),cx+r1*cos(t));bx1=max(bx1,cx+r0*cos(t),cx+r1*cos(t))
+   by0=min(by0,cy+r0*sin(t),cy+r1*sin(t));by1=max(by1,cy+r0*sin(t),cy+r1*sin(t))
+  end do
+  do j=floor((by0-1)*render_scale),ceiling((by1+1)*render_scale)
+   do i=floor((bx0-1)*render_scale),ceiling((bx1+1)*render_scale)
+    px=(i+.5d0)/render_scale-cx;py=(j+.5d0)/render_scale-cy;r=sqrt(px*px+py*py)
+    if(r<r0-1.or.r>r1+1)cycle
+    ang=atan2(py,px)*57.29577951308232d0-mid
+    ang=modulo(ang+180,360d0)-180
+    if(abs(ang)>half+2)cycle
+    dr=min(r-r0,r1-r)*render_scale
+    ex=(half-abs(ang))/57.29577951308232d0*r*render_scale
+    cov=max(0d0,min(1d0,dr+.5d0))*max(0d0,min(1d0,ex+.5d0))
+    if(cov>0)call pixel_raw(i,j,color,cov*alpha)
+   end do
+  end do
+ end subroutine
+! @nativefn NR2-M03-F0056
+ subroutine logo_dna(cx,cy,hr,angle)
+  ! Rotating double helix inside the logo hexagon. Port of the dna_denature.f90 renderer:
+  ! sphere impostors, Z-buffer, Lambert + specular lighting and depth cueing, clipped to the
+  ! hexagon (circumradius hr, pointy top) and drawn at device resolution.
+  real(c_double),intent(in)::cx,cy,hr,angle
+  integer,parameter::nbp=10,ns=96
+  character(len=nbp),parameter::seq='ATGCGATATA'
+  real(c_double)::zb(ns,ns),pa(3,nbp),pb(3,nbp),q(3),d(3),th,zc,s,t,blen
+  real(c_double),parameter::lx=-.45d0,ly=.55d0,lz=.70d0
+  integer(c_int32_t)::mat(0:5)
+  integer::i,k,ma,mb,ox,oy
+  mat=[rgba(201,155,208,255),rgba(95,200,200,255),rgba(255,90,90,255),rgba(255,210,74,255),rgba(95,211,138,255), &
+   rgba(90,169,255,255)]
+  zb=huge(1d0);s=1.45d0*render_scale              ! device pixels per angstrom
+  ox=nint(cx*render_scale)-ns/2;oy=nint(cy*render_scale)-ns/2
+  do i=1,nbp
+   th=angle/57.29577951308232d0+(i-1)*36d0/57.29577951308232d0;zc=(i-(nbp+1)/2d0)*3.4d0
+   pa(:,i)=[9d0*cos(th),zc,9d0*sin(th)]
+   pb(:,i)=[9d0*cos(th+155d0/57.29577951308232d0),zc,9d0*sin(th+155d0/57.29577951308232d0)]
+  end do
+  do i=1,nbp
+   call ball(pa(:,i),2.1d0,0);call ball(pb(:,i),2.1d0,1)
+   if(i<nbp)then
+    do k=1,3
+     t=k/4d0;q=pa(:,i)+t*(pa(:,i+1)-pa(:,i));call ball(q,1.25d0,0)
+     q=pb(:,i)+t*(pb(:,i+1)-pb(:,i));call ball(q,1.25d0,1)
+    end do
+   end if
+   select case(seq(i:i))
+   case('A');ma=2;mb=3
+   case('T');ma=3;mb=2
+   case('G');ma=4;mb=5
+   case default;ma=5;mb=4
+   end select
+   d=pb(:,i)-pa(:,i);blen=sqrt(sum(d*d))/2;d=d/(2*blen)
+   do k=1,5
+    t=blen*k/5d0;q=pa(:,i)+t*d;call ball(q,1.1d0,ma);q=pb(:,i)-t*d;call ball(q,1.1d0,mb)
+   end do
+  end do
+ contains
+  subroutine ball(p,r,m)
+   real(c_double),intent(in)::p(3),r
+   integer,intent(in)::m
+   real(c_double)::sx,sy,sr,dx,dy,d2,nz,depth,diff,spec,inten,cue,hx,hy,cov,e
+   integer::i0,i1,j0,j1,i,j,c(3),k
+   sx=ns/2d0+s*p(1);sy=ns/2d0-s*p(2);sr=s*r
+   i0=max(1,floor(sx-sr));i1=min(ns,ceiling(sx+sr));j0=max(1,floor(sy-sr));j1=min(ns,ceiling(sy+sr))
+   cue=1-.35d0*(p(3)+11)/22
+   do j=j0,j1
+    do i=i0,i1
+     dx=(i-.5d0-sx)/sr;dy=(sy-(j-.5d0))/sr;d2=dx*dx+dy*dy
+     if(d2>=1)cycle
+     hx=abs((ox+i-.5d0)/render_scale-cx);hy=abs((oy+j-.5d0)/render_scale-cy)
+     if(hx>hr*.866d0-2.5d0.or.hx*.57735d0+hy>hr-2.5d0)cycle
+     nz=sqrt(1-d2);depth=-p(3)-r*nz
+     if(depth>=zb(i,j))cycle
+     zb(i,j)=depth
+     diff=max(0d0,dx*lx+dy*ly+nz*lz);spec=max(0d0,dx*(-.25d0)+dy*.30d0+nz*.92d0)**28
+     inten=(.30d0+.70d0*diff)*cue;e=min(1d0,spec*1.2d0)
+     do k=1,3
+      c(k)=nint(min(255d0,ibits(mat(m),8*(k-1),8)*inten*(1-e)+255*e))
+     end do
+     cov=min(1d0,(1-sqrt(d2))*sr*1.5d0+.35d0)
+     call pixel_raw(ox+i-1,oy+j-1,rgba(c(1),c(2),c(3),255),cov)
+    end do
+   end do
+  end subroutine
+ end subroutine
+! @nativefn NR2-M03-F0053
+ subroutine centred(s,cx,y,color,scale)
+  character(len=*),intent(in)::s
+  integer,intent(in)::cx,y,scale
+  integer(c_int32_t),intent(in)::color
+  call label(s,cx-text_px(s,scale)/2,y,color,scale)
+ end subroutine
+! @nativefn NR2-M03-F0054
+ integer function text_px(s,scale) result(w)
+  ! Width in logical pixels of UTF-8 text at the label scale.
+  character(len=*),intent(in)::s
+  integer,intent(in)::scale
+  integer::i,code,step,adv
+  adv=0;i=1
+  do while(i<=len_trim(s))
+   call utf8_code(s,i,code,step);adv=adv+glyph_advance(glyph(code))*scale*render_scale/2;i=i+step
+  end do
+  w=adv/render_scale
+ end function
+! @nativefn NR2-M03-F0055
+ subroutine draw_boot()
+  integer::x0,y0,ww,wh,k,stages,i,first,lines,lx,ly,lw,cx,cy,done,xr,wr,lg,stg
+  integer::nl,j
+  character(len=200)::rows(0:nboot+1)
+  real(c_double)::sc,a0
+  integer(c_int32_t)::seg(5),edge
+  character(len=200)::txt
+  seg=[rgba(245,155,72,255),rgba(217,137,92,255),rgba(214,162,211,255),rgba(171,127,192,255),rgba(224,165,96,255)]
+  ww=min(width-60,1180);wh=height-40;x0=(width-ww)/2;y0=20
+  call soft_panel(x0,y0,ww,wh,28,rgba(101,71,86,255));call soft_panel(x0+2,y0+2,ww-4,wh-4,26,rgba(5,5,7,255))
+  call soft_panel(x0,y0,ww,64,28,rgba(240,160,94,255));call rectangle(x0,y0+32,ww,32,rgba(240,160,94,255))
+  call rectangle(x0,y0+64,ww,8,rgba(5,5,7,255));call rectangle(x0,y0+40,24,wh-80,rgba(197,155,207,255))
+  call label('MISSY / SYSTEM INITIALIZATION',x0+44,y0+22,rgba(21,13,18,255),1)
+  done=0
+  do k=1,nboot
+   if(boot_el(k)>0.or.(booted.and.boot_failed==0))done=done+1
+  end do
+  if(boot_failed>0)done=boot_failed-1
+  stages=0
+  do stg=1,5
+   if(done>=boot_last(stg))stages=stages+1
+  end do
+  ! ring of five startup stages (geometry of the MISSY R2 startup dial)
+  sc=1.08d0;cx=x0+200;cy=y0+215
+  do k=1,5
+   a0=-86+72d0*(k-1)
+   if(k<=stages)then
+    call ring_segment(real(cx,c_double),real(cy,c_double),79*sc,108*sc,a0,a0+64,seg(k),1d0)
+   else
+    call ring_segment(real(cx,c_double),real(cy,c_double),79*sc,108*sc,a0,a0+64,seg(k),.25d0)
+   end if
+   call centred('0'//achar(48+k),cx+nint(93.5d0*sc*cos((a0+32)/57.29577951308232d0)), &
+    cy+nint(93.5d0*sc*sin((a0+32)/57.29577951308232d0))-9,rgba(9,9,9,255),1)
+  end do
+  call ring_segment(real(cx,c_double),real(cy,c_double),64*sc-.6d0,64*sc+.6d0,-180d0,180d0,rgba(104,76,112,255),1d0)
+  call centred('S T A R T U P',cx,cy-34,rgba(211,160,215,255),1)
+  call centred(achar(48+stages)//' / 5',cx,cy-4,rgba(245,163,85,255),2)
+  ! instrument card: the MISSY logo is the entry control
+  xr=x0+400;wr=ww-440;lx=xr+(wr-320)/2;ly=y0+96
+  edge=rgba(103,209,216,255);if(booted.and.boot_failed==0)edge=rgba(240,160,94,255)
+  if(booted.and.boot_failed==0)call button(90,0,'',lx,ly,320,112,.true.)
+  call soft_panel(lx,ly,320,112,16,edge);call soft_panel(lx+3,ly+3,314,106,14,rgba(249,251,252,255))
+  call logo_dna(lx+58d0,ly+56d0,38d0,boot_anim*.09d0)
+  do i=0,5
+   a0=(60*i-90)/57.29577951308232d0
+   call aa_line(lx+58+38*cos(a0),ly+56+38*sin(a0),lx+58+38*cos(a0+1.0471975511965976d0),ly+56+38*sin(a0+1.0471975511965976d0), &
+    rgba(23,50,77,255),2.5d0,.false.,[0d0,0d0,1d5,1d5])
+  end do
+  call label('M I S S Y',lx+112,ly+16,rgba(23,50,77,255),2)
+  call label('FORTRAN',lx+114,ly+58,rgba(31,138,138,255),1)
+  call label('NOT VALIDATED',lx+114,ly+84,rgba(23,50,77,255),1)
+  if(boot_failed>0)then
+   txt='Startup stopped: '//trim(boot_label(boot_failed))//' failed. Reload the page.'
+  else if(booted)then
+   txt='Ready '//achar(226)//achar(128)//achar(148)//' click the MISSY logo or press Enter to enter.'
+  else
+   txt='Loading the Fortran edition '//achar(194)//achar(183)//' component '//trim(integer_text(min(nboot,done+1)))//' of '// &
+    trim(integer_text(nboot))
+  end if
+  call label(txt,xr,y0+232,ink,1)
+  call rectangle(xr,y0+268,wr,6,rgba(42,31,49,255))
+  lg=nint(wr*real(done,c_double)/nboot)
+  do i=0,lg-1
+   call rectangle(xr+i,y0+268,1,6,rgba(240-nint(39d0*i/max(1,wr)),160-nint(6d0*i/max(1,wr)),94+nint(113d0*i/max(1,wr)),255))
+  end do
+  call label('Embedded Fortran components: display, numerical models, scenario catalogue, records and export, interface.', &
+   xr,y0+296,purple,1)
+  if(host_ms>=0)call label('WebAssembly module compiled and instantiated by the browser in '//trim(real_text(host_ms,1))//' ms.',xr,y0+326,purple,1)
+  ! boot log
+  ! Boot log starts below the dial and the status block, whichever is lower (no overlap at any size).
+  lx=x0+50;lw=ww-90;ly=max(y0+410,cy+nint(108*sc)+78)
+  call label('B O O T   L O G   /   E M B E D D E D   C O M P O N E N T S',lx,ly-46,rgba(199,154,199,255),1)
+  call label('Component loading '//achar(226)//achar(128)//achar(148)//' three known-answer checks (CRC-32, SHA-256, DEFLATE). '// &
+   'Times: elapsed startup (+ since previous component).',lx,ly-22,rgba(214,190,226,255),1)
+  lines=max(6,(wh-(ly-y0)-150)/22)
+  call soft_panel(lx,ly,lw,lines*22+20,12,rgba(104,76,112,255));call soft_panel(lx+2,ly+2,lw-4,lines*22+16,10,rgba(11,9,15,255))
+   nl=0
+   if(host_ms>=0)then
+    rows(nl)='[LOADED] 00/'//trim(integer_text(nboot))//' '//achar(194)//achar(183)//' WebAssembly module (browser) '// &
+     achar(194)//achar(183)//' '//trim(real_text(host_ms,1))//' ms';nl=nl+1
+   end if
+   do k=1,nboot
+    if(boot_el(k)<=0.and.boot_failed/=k)cycle
+    rows(nl)=boot_line(k);nl=nl+1
+   end do
+   if(booted.and.boot_failed==0)then
+    rows(nl)='[READY] Initialization complete. No experiment files read during startup.';nl=nl+1
+   end if
+   first=max(0,nl-lines)
+   do j=first,nl-1
+    if(index(rows(j),'[FAILED]')==1)then
+     call label(rows(j),lx+16,ly+10+(j-first)*22,orange,1)
+    else
+     call label(rows(j),lx+16,ly+10+(j-first)*22,rgba(214,190,226,255),1)
+    end if
+   end do
+  ly=ly+lines*22+34
+  do i=0,6
+   call rectangle(lx+i*(lw/7)+3,ly,lw/7-6,5,cal(i+1))
+  end do
+  call label('Version: native Fortran edition '//achar(194)//achar(183)//' RDMLt export 2',lx,ly+22,rgba(212,176,224,255),1)
+  txt=trim(integer_text(done))//' of '//trim(integer_text(nboot))//' Fortran components loaded '//achar(194)//achar(183)//' '// &
+   trim(real_text(merge(boot_done_ms,boot_ms,booted),0))//' ms'
+  if(host_mb>0)txt=trim(txt)//' '//achar(194)//achar(183)//' '//trim(integer_text(nint(host_mb)))//' MB WebAssembly memory'
+  call label(txt,lx+lw-text_px(txt,1),ly+22,rgba(200,172,216,255),1)
+ contains
+  integer(c_int32_t) function cal(i)
+   integer,intent(in)::i
+   integer(c_int32_t),parameter::sw(7)=[int(z'FFDFD6CB',c_int32_t),int(z'FF4CC6D0',c_int32_t),int(z'FFCEC948',c_int32_t), &
+    int(z'FF79B653',c_int32_t),int(z'FFBA6BB6',c_int32_t),int(z'FF6E6ED5',c_int32_t),int(z'FFC67D62',c_int32_t)]
+   cal=sw(i)
+  end function
+ end subroutine
+! ---------------------------------------------------------------- references
+! @nativefn NR2-M03-F0060
+ integer function line_end(s,a,maxpx) result(b)
+  ! Last byte of the longest run of whole words from s(a:) that fits in maxpx logical pixels.
+  character(len=*),intent(in)::s
+  integer,intent(in)::a,maxpx
+  integer::k,n,lastspace
+  n=len_trim(s);b=n;lastspace=0
+  do k=a,n
+   if(s(k:k)==' ')lastspace=k
+   if(text_px(s(a:k),1)>maxpx)then
+    b=k-1;if(lastspace>a)b=lastspace
+    return
+   end if
+  end do
+ end function
+! @nativefn NR2-M03-F0062
+ integer function wrap_rows(s,maxpx) result(rows)
+  character(len=*),intent(in)::s
+  integer,intent(in)::maxpx
+  integer::a
+  a=1;rows=0
+  do while(a<=len_trim(s))
+   a=max(a+1,line_end(s,a,maxpx)+1);rows=rows+1
+   do while(a<=len_trim(s))
+    if(s(a:a)/=' ')exit
+    a=a+1
+   end do
+  end do
+ end function
+! @nativefn NR2-M03-F0063
+ subroutine wrapped_px(s,x,y,maxpx,color)
+  character(len=*),intent(in)::s
+  integer,intent(in)::x,y,maxpx
+  integer(c_int32_t),intent(in)::color
+  integer::a,b,row
+  a=1;row=0
+  do while(a<=len_trim(s))
+   b=max(a,line_end(s,a,maxpx));call label(s(a:b),x,y+row*22,color,1);a=b+1;row=row+1
+   do while(a<=len_trim(s))
+    if(s(a:a)/=' ')exit
+    a=a+1
+   end do
+  end do
+ end subroutine
+! @nativefn NR2-M03-F0061
+ subroutine draw_references()
+  integer::i,y,chars,ystart,ybottom,pg,k,shown,last_section
+  integer::starts(nref+1),npages
+  logical::cont
+  character(len=12)::num
+  chars=width-112-80;ystart=200;ybottom=height-150
+  ! page boundaries from the same wrapping rule used for drawing
+  npages=1;starts(1)=1;y=ystart;last_section=0
+  do i=1,nref
+   k=wrap_rows(ref_text(i),chars)*22+12
+   if(ref_section(i)/=last_section)k=k+34
+   if(y+k>ybottom.and.y>ystart)then
+    npages=npages+1;starts(npages)=i;y=ystart+34
+   end if
+   y=y+k;last_section=ref_section(i)
+  end do
+  starts(npages+1)=nref+1
+  ref_page=max(0,min(npages-1,ref_page));pg=ref_page+1
+  call label('References',60,128,orange,2)
+  call label('Sources of the methods, standards, data formats and software used by this edition. Page '// &
+   trim(integer_text(pg))//' of '//trim(integer_text(npages))//'.',60,168,ink,1)
+  y=ystart;shown=0;last_section=0
+  if(starts(pg)>1)last_section=-1
+  do i=starts(pg),starts(pg+1)-1
+   if(ref_section(i)/=last_section)then
+    cont=.false.
+    if(last_section==-1)cont=ref_section(i)==ref_section(starts(pg)-1)
+    if(cont)then
+     call label(trim(section_title(ref_section(i)))//' (continued)',60,y,cyan,1)
+    else
+     call label(trim(section_title(ref_section(i))),60,y,cyan,1)
+    end if
+    y=y+34;last_section=ref_section(i)
+   end if
+   num='['//trim(integer_text(i))//']'
+   if(ref_section(i)==3)num=achar(194)//achar(183)
+   call label(num,60,y,purple,1)
+   call wrapped_px(trim(ref_text(i)),112,y,chars,ink)
+   y=y+wrap_rows(ref_text(i),chars)*22+12
+  end do
+  call button(41,0,'Previous',60,height-122,140,44,pg>1)
+  call label(trim(integer_text(pg))//' / '//trim(integer_text(npages)),220,height-110,ink,1)
+  call button(42,0,'Next',320,height-122,140,44,pg<npages)
+ end subroutine
 ! @nativefn NR2-M03-F0009
  function native_render() result(ptr) bind(c)
   type(c_ptr)::ptr
   integer::v,cw,shown_cycle,i
   real(c_double)::a0,a1,b0,b1,clipmark(4)
   nb=0
+  if(page==-1)then
+   call allocate_frame(width,height,bg);call draw_boot()
+   ptr=c_loc(pixels(1));dirty=.false.;return
+  end if
   shown_cycle=current%ncy
   if(.not.running.and.selected>0)shown_cycle=history(selected)%ncy
   if(page==1.and.(running.or.selected==0))then
@@ -401,7 +884,7 @@ contains
    call home_card(20,'qPCR scenarios','Edit parameters and explore virtual faults',3,100+2*cw,300,cw,.not.running,cyan)
    call home_card(5,'Configure profile','Set batches, DNA design and analysis',4,60,435,cw,.not.running,purple)
    call home_card(13,'Load files','Open a profile or native RDMLt record',5,80+cw,435,cw,.not.running,orange)
-   call home_card(6,'About / help','Controls, capabilities and limitations',6,100+2*cw,435,cw,.true.,purple)
+   call home_card(6,'References','Sources, standards, libraries and notes',6,100+2*cw,435,cw,.true.,purple)
    if(p_scenario==0)call label('Scenario: normal run',60,655,cyan,1)
    if(p_scenario>0)call label('Scenario: '//trim(scenario_ids(p_scenario)),60,655,cyan,1)
    if(.not.scenario_available(p_scenario))call label('Melt acquisition is unavailable. Select another scenario or Normal virtual PCR.',60,700,orange,1)
@@ -435,16 +918,7 @@ contains
   else if(page==4)then
    call draw_profile()
   else if(page==5)then
-   call label('Retained: native generic DNA probe assay, 45 cycles, 1-3 extractions and replicates.',60,165,ink,1)
-   call label('Native kinetics, thermal plant / PID, dual sensor monitor, raw integer fluorescence.',60,205,ink,1)
-   call label('Native batch 1-20, seeded variation and teaching control review.',60,245,ink,1)
-   call label('Native profile JSON and experimental uncompressed RDMLt package round trip.',60,285,ink,1)
-   call label('Removed: legacy format readers, MARA / advanced SOP editor, quizzes and 3 builders.',60,345,orange,1)
-   call label('Removed: checkpoint recovery and bilingual interface.',60,385,orange,1)
-   call label('Imports: this edition native packages only. CRC-32 detects corruption; no authentication.',60,425,purple,1)
-   call label('Mouse and keyboard controls. Escape: Home. Space: stop and file the current run.',60,485,ink,1)
-   call label('Numeric fields: click a value, type, then Enter to apply. Escape cancels an edit.',60,525,ink,1)
-   call label('Pointer: wheel zoom, drag pan; keyboard Escape returns Home. All decisions are native.',60,585,ink,1)
+   call draw_references()
   end if
   if(page==2)then
    call button(8,0,'Previous run',60,132,150,36,selected>1)
@@ -492,7 +966,13 @@ contains
   case(5)
    if(.not.running)page=4
   case(6)
-   page=5
+   page=5;ref_page=0
+  case(41)
+   ref_page=max(0,ref_page-1)
+  case(42)
+   ref_page=ref_page+1
+  case(90)
+   if(booted.and.boot_failed==0)page=0
   case(7)
    if(running)call finish_run(2)
   case(8)
@@ -584,7 +1064,9 @@ contains
   real(c_double)::v,p(6)
   logical::ok
   type(c_ptr)::refreshed
-  if(kind==1.or.kind==2.or.kind==3.or.kind==6)then
+  if(kind==7)then
+   mx=mx
+  else if(kind==1.or.kind==2.or.kind==3.or.kind==6)then
    mx=x/render_scale;my=y/render_scale
   else
    mx=x;my=y
@@ -609,7 +1091,13 @@ contains
    end if
   case(3)
    dragging=.false.
+  case(7)
+   host_ms=x;host_mb=y;boot_ms=max(boot_ms,x)
   case(4)
+   if(page==-1)then
+    if(value==13.and.booted.and.boot_failed==0)page=0
+    dirty=.true.;return
+   end if
    if(edit_param>0.and.page==7)then
     n=len_trim(edit_buffer)
     if(value>=48.and.value<=57.and.n<20)edit_buffer(n+1:n+1)=achar(value)
@@ -650,6 +1138,7 @@ contains
   integer(c_int),value::n
   integer(c_int8_t),intent(in)::a(n)
   integer::before
+  if(page==-1)return
   before=nh
   call load_file(a,n);dirty=.true.
   if(nh>before)page=2
@@ -660,6 +1149,25 @@ contains
   real(c_double),value::ms
   logical::was_running
   was_running=running
+  if(page==-1)then
+   ! The startup screen animates the logo helix, so it redraws every frame until entry.
+   boot_anim=boot_anim+max(0d0,min(100d0,ms));dirty=.true.
+   boot_ms=boot_ms+max(0d0,min(10000d0,ms))
+   if(boot_pending>0)then
+    boot_el(boot_pending)=boot_ms;boot_pending=0;dirty=.true.
+   end if
+   if(boot_failed==0.and.boot_next<=nboot)then
+    call boot_step(boot_next)
+    if(boot_failed==0)then
+     boot_pending=boot_next
+    else
+     boot_el(boot_next)=boot_ms
+    end if
+    boot_next=boot_next+1;dirty=.true.
+   else if(boot_failed==0.and..not.booted)then
+    booted=.true.;boot_done_ms=boot_ms;dirty=.true.
+   end if
+  end if
   call tick_model(ms)
   changed=0;if(dirty.or.was_running.or.running.or.remaining>0)changed=1
  end function

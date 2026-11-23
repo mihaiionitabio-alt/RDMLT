@@ -12,15 +12,37 @@ module native_model
  use r2_optics
  implicit none
  integer, parameter :: maxruns=32,maxw=14,maxtrace=8000
+ ! Instrument record (exported as RDMLt telemetry, events, optical reads and chemistry snapshots).
+ integer, parameter :: ntel=28,maxev=1200,snap_every=10,nsnapf=16,nhf=20,nsg=20
  type run_t
   integer :: serial=0,nw=0,ncy=0,status=0,seed=1,ne=3,nr=3,copies=30000,threshold=150,fault=0,nt=0,scenario=0,planned_cycles=45,present(maxw)=1
   real(c_double) :: y(45,maxw)=0,y2(45,maxw)=0,cq(maxw)=0,cq2(maxw)=0,params(6)=0,trace(6,maxtrace)=0,elapsed=0,maxgap=0
+  integer :: ntel_rows=0,nev=0,nsnap=0,lid_ready=0,recorded=0
+  character(len=29) :: started='',finished=''
+  real(c_float) :: tele(ntel,maxtrace)=0
+  real(c_double) :: ev(4,maxev)=0,acq_t(45)=0,acq_zone(2,45)=0
+  real(c_float) :: rawsig(45,maxw,2)=0,cutf(45,maxw,2)=0,lightf(45,maxw)=1
+  integer :: prog=1,nhold=2,hf_slot=-1
+  real(c_double) :: hold_t(2)=[50d0,95d0],hold_s(2)=[120d0,600d0],den_s=15,ann_hold=60,ann_t=60,lid_t=105
+  real(c_double) :: assay_s(14,maxw)=0,assay2_s(14,maxw)=0,probe_f(maxw)=200,probe_tm(maxw)=70
  end type
+ ! High-rate record of a run, allocated on demand: 10 Hz telemetry (v), 10 s snapshots of the
+ ! controller/plant (g) and of every well (c). Slot 0 is the running run; finished runs move here.
+ type hf_t
+  real(c_float),allocatable :: v(:,:),g(:,:),c(:,:,:)
+  integer :: n=0,ns=0
+ end type
+ type(hf_t),save :: hfr(0:maxruns)
+ ! Event codes (names in event_name): stable numeric identifiers inside the run record.
+ integer, parameter :: ev_boot=1,ev_run_start=2,ev_selftest_ok=3,ev_lid_ready=4,ev_stage_start=5,ev_step_start=6, &
+  ev_target_reached=7,ev_step_end=8,ev_read_start=9,ev_read_end=10,ev_run_complete=11,ev_run_aborted=12, &
+  ev_monitor_stop=13,ev_interlock=14,ev_time_limit=15,ev_host_crash=16,ev_setup_rejected=17
  type(run_t), save :: current,history(maxruns)
  integer, save :: nh=0,selected=0,phase=0,remaining=0
- integer, save :: p_runs=1,p_ext=3,p_rep=3,p_copies=30000,p_threshold=150,p_seed=11,p_fault=0,p_speed=1000
+ integer, save :: p_prog=1,p_runs=1,p_ext=3,p_rep=3,p_copies=30000,p_threshold=150,p_seed=11,p_fault=0,p_speed=1000
  logical, save :: running=.false.
  real(c_double),save :: plant(19),pid(4,2),chem(34,maxw),assay(14,maxw),probe(6,maxw),camera(9,maxw),chem2(34,maxw),assay2(14,maxw),probe2(6,maxw),camera2(9,maxw)
+ integer, save :: hf_tick=0
  real(c_double),save :: random=1,independent=2,reference_random=3,scenario_random=4,contact(maxw)=25,measured(2)=25,monitor(6)=0,hold=0,target=95,budget=0
  character(len=160),save :: message='Ready. Native Fortran application.'
 contains
@@ -59,6 +81,127 @@ contains
   end if
   if(v<0)s='-'//trim(s)
  end function
+! @nativefn NR2-M01-F0019
+ function iso_now() result(s)
+  ! Wall-clock ISO 8601 time with UTC offset (browser playback time, not instrument time).
+  character(len=29)::s
+  integer::v(8),off
+  character(len=1)::sg
+  call date_and_time(values=v)
+  s=''
+  if(v(1)<1970)return
+  off=v(4);sg='+';if(off<0)sg='-'
+  off=abs(off)
+  s=trim(integer_text(v(1)))//'-'//d2(v(2))//'-'//d2(v(3))//'T'//d2(v(5))//':'//d2(v(6))//':'//d2(v(7))//'.'// &
+   d3(v(8))//sg//d2(off/60)//':'//d2(mod(off,60))
+ contains
+  function d2(i) result(t)
+   integer,intent(in)::i
+   character(len=2)::t
+   t=achar(48+mod(i/10,10))//achar(48+mod(i,10))
+  end function
+  function d3(i) result(t)
+   integer,intent(in)::i
+   character(len=3)::t
+   t=achar(48+mod(i/100,10))//achar(48+mod(i/10,10))//achar(48+mod(i,10))
+  end function
+ end function
+! @nativefn NR2-M01-F0014
+ function event_name(code) result(s)
+  integer,intent(in)::code
+  character(len=20)::s
+  select case(code)
+  case(ev_boot);s='BOOT'
+  case(ev_run_start);s='RUN_START'
+  case(ev_selftest_ok);s='SELFTEST_OK'
+  case(ev_lid_ready);s='LID_READY'
+  case(ev_stage_start);s='STAGE_START'
+  case(ev_step_start);s='STEP_START'
+  case(ev_target_reached);s='TARGET_REACHED'
+  case(ev_step_end);s='STEP_END'
+  case(ev_read_start);s='READ_START'
+  case(ev_read_end);s='READ_END'
+  case(ev_run_complete);s='RUN_COMPLETE'
+  case(ev_run_aborted);s='RUN_ABORTED'
+  case(ev_monitor_stop);s='MONITOR_STOP'
+  case(ev_interlock);s='INTERLOCK_STOP'
+  case(ev_time_limit);s='TIME_LIMIT'
+  case(ev_host_crash);s='HOST_CRASH'
+  case(ev_setup_rejected);s='SETUP_REJECTED'
+  case default;s='UNKNOWN'
+  end select
+ end function
+! @nativefn NR2-M01-F0015
+ subroutine log_event(code,a,b)
+  ! Appends one firmware-style event at the current simulated time. Never alters model state.
+  integer,intent(in)::code,a,b
+  if(current%nev>=maxev)return
+  current%nev=current%nev+1
+  current%ev(:,current%nev)=[current%elapsed*1000,real(code,c_double),real(a,c_double),real(b,c_double)]
+ end subroutine
+! @nativefn NR2-M01-F0016
+ subroutine stage_step(ph,stage,step)
+  ! Native protocol mapping: phase 0 = stage 0 (initial denaturation); phases 1/2 = stage 1 steps 0/1.
+  integer,intent(in)::ph
+  integer,intent(out)::stage,step
+  stage=min(ph,current%nhold);step=0
+  if(ph==current%nhold+1)step=1
+ end subroutine
+! @nativefn NR2-M01-F0017
+ subroutine log_telemetry(primary,secondary,gap)
+  ! One row per simulated second, logged at the same instant as the existing trace.
+  real(c_double),intent(in)::primary(2),secondary(2),gap
+  integer::stage,step,state,cyc,busy
+  if(current%ntel_rows>=maxtrace)return
+  call stage_step(phase,stage,step)
+  state=2;if(hold>0)state=3
+  cyc=0;if(stage==current%nhold)cyc=current%ncy+1
+  busy=0
+  if(current%ncy>0)then
+   if(current%elapsed-current%acq_t(current%ncy)<1.5d0)busy=1
+  end if
+  current%ntel_rows=current%ntel_rows+1
+  current%tele(:,current%ntel_rows)=real([current%elapsed,target,primary(1),primary(2),plant(5),plant(6), &
+   (secondary(1)+secondary(2))/2,plant(8),plant(9),plant(10),plant(11),plant(16),plant(17),plant(19),plant(12), &
+   real(state,c_double),real(stage,c_double),real(step,c_double),real(cyc,c_double),plant(3),plant(4),plant(1),plant(2), &
+   plant(7),plant(18),gap,real(busy,c_double),plant(13)],c_float)
+ end subroutine
+! @nativefn NR2-M01-F0018
+ subroutine log_chemistry()
+  ! 10 s snapshot: controller and plant state (g) and the reaction state of every well (c).
+  integer::w,k
+  real(c_double)::tw
+  if(.not.allocated(hfr(0)%g))return
+  if(hfr(0)%ns>=size(hfr(0)%g,2))return
+  hfr(0)%ns=hfr(0)%ns+1;k=hfr(0)%ns
+  hfr(0)%g(:,k)=real([current%elapsed,plant(3),plant(4),target,pid(1,1),pid(1,2),pid(2,1),pid(2,2),plant(1),plant(2), &
+   plant(5),plant(6),plant(7),plant(16),plant(17),plant(18),plant(12),plant(13),real(current%ncy,c_double),0d0],c_float)
+  do w=1,current%nw
+   tw=plant(3+mod(mod(well_position(w,current%ne,current%nr),24),2))
+   hfr(0)%c(:,w,k)=real([chem(27,w),chem(1,w),chem(2,w),sum(chem(3:12,w)),chem(13,w),chem(14,w),chem(28,w), &
+    chem(29,w),chem(30,w),chem(31,w),chem(32,w),chem(33,w),probe(2,w)/max(1d0,probe(1,w)),probe(1,w), &
+    sigmoid((current%probe_tm(w)-tw)/1.5d0),current%probe_tm(w)],c_float)
+  end do
+ end subroutine
+! @nativefn NR2-M01-F0020
+ subroutine log_highrate(primary,secondary)
+  ! 10 Hz telemetry row (every second 50 ms model step), same quantities as the R2 record.
+  real(c_double),intent(in)::primary(2),secondary(2)
+  integer::stage,step,state,cyc,busy,k
+  if(.not.allocated(hfr(0)%v))return
+  if(hfr(0)%n>=size(hfr(0)%v,2))return
+  call stage_step(phase,stage,step)
+  state=2;if(hold>0)state=3
+  cyc=0;if(stage==current%nhold)cyc=current%ncy+1
+  busy=0
+  if(current%ncy>0)then
+   if(current%elapsed-current%acq_t(current%ncy)<0.2d0*current%nw+0.05d0)busy=1
+  end if
+  hfr(0)%n=hfr(0)%n+1;k=hfr(0)%n
+  hfr(0)%v(:,k)=real([current%elapsed,target,primary(1),primary(2),plant(5),plant(6),(secondary(1)+secondary(2))/2, &
+   plant(8),plant(9),plant(10),plant(11),plant(16),plant(17),plant(19),plant(12),real(state,c_double), &
+   real(stage,c_double),real(step,c_double),real(cyc,c_double),real(busy,c_double)],c_float)
+ end subroutine
 ! @nativefn NR2-M01-F0003
  subroutine analyse_curve(y,n,threshold,cq)
   real(c_double),intent(in)::y(45),threshold
@@ -126,7 +269,19 @@ contains
   p=current%params
   if(p_scenario==20)current%planned_cycles=nint(p(2))
   plant=0;plant(1:7)=25;plant(11)=.5d0;plant(12)=1
-  pid=0;monitor=0;monitor(2)=-1;phase=0;hold=0;budget=0;target=95
+  current%prog=p_prog
+  if(p_prog==1)then
+   current%nhold=2;current%hold_t=[50d0,95d0];current%hold_s=[120d0,600d0];current%den_s=15;current%ann_hold=60
+  else
+   current%nhold=1;current%hold_t=[95d0,95d0];current%hold_s=[120d0,0d0];current%den_s=10;current%ann_hold=30
+  end if
+  current%ann_t=60;if(p_scenario==20.or.p_scenario==34.or.p_scenario==35)current%ann_t=p(1)
+  current%lid_t=105;if(p_scenario==3)current%lid_t=p(1)
+  pid=0;monitor=0;monitor(2)=-1;phase=0;hold=0;budget=0;target=current%hold_t(1);hf_tick=0
+  if(allocated(hfr(0)%v))deallocate(hfr(0)%v)
+  if(allocated(hfr(0)%g))deallocate(hfr(0)%g)
+  if(allocated(hfr(0)%c))deallocate(hfr(0)%c)
+  allocate(hfr(0)%v(nhf,80000),hfr(0)%g(nsg,800),hfr(0)%c(nsnapf,current%nw,800));hfr(0)%n=0;hfr(0)%ns=0
   random=real(current%seed,c_double)+p(6);independent=random+17431;reference_random=random+27183
   scenario_random=random+42443+p(6);camera=0;camera2=0;contact=25;measured=25
   do i=1,3
@@ -176,6 +331,8 @@ contains
    if(p_scenario==31.and.affects(p_scenario,p,w,p_ext,p_rep))f=200*p(2)
    if(p_scenario==25.and.affects(p_scenario,p,w,p_ext,p_rep))f=200-p(1)
    call r2_probe_init(probe(:,w),f,0d0);call r2_probe_init(probe2(:,w),200d0,0d0)
+   current%assay_s(:,w)=assay(:,w);current%assay2_s(:,w)=assay2(:,w);current%probe_f(w)=f
+   current%probe_tm(w)=70;if(p_scenario==33.and.affects(p_scenario,p,w,p_ext,p_rep))current%probe_tm(w)=70-p(1)
    if(p_scenario==32.and.affects(p_scenario,p,w,p_ext,p_rep))then
     do i=1,nint(p(1)*3600)
      call r2_chem_step(chem(:,w),assay(:,w),p(2),1d0,scenario_random)
@@ -187,7 +344,12 @@ contains
    if(nint(p(2))==1)current%present(s+3)=0
   end if
   running=.true.;message='Running: native thermal / chemistry / detector model.'
-  if(p_scenario==37.and.mod(nint(p(1)),180)/=0)call finish_run(6)
+  current%recorded=1;current%started=iso_now()
+  call log_event(ev_boot,0,0);call log_event(ev_run_start,0,0);call log_event(ev_selftest_ok,0,0)
+  call log_event(ev_stage_start,0,0);call log_event(ev_step_start,0,0)
+  if(p_scenario==37.and.mod(nint(p(1)),180)/=0)then
+   call log_event(ev_setup_rejected,nint(p(1)),0);call finish_run(6)
+  end if
  end subroutine
 ! @nativefn NR2-M01-F0006
  subroutine start_batch()
@@ -202,14 +364,34 @@ contains
   end if
   remaining=p_runs;call begin_run()
  end subroutine
+! @nativefn NR2-M01-F0021
+ subroutine file_highrate(slot)
+  ! Moves the running record into a history slot, trimmed to the rows actually written.
+  integer,intent(in)::slot
+  real(c_float),allocatable::t2(:,:),t3(:,:,:)
+  if(.not.allocated(hfr(0)%v))return
+  allocate(t2(nhf,max(1,hfr(0)%n)));t2=0;t2(:,1:hfr(0)%n)=hfr(0)%v(:,1:hfr(0)%n);call move_alloc(t2,hfr(slot)%v)
+  allocate(t2(nsg,max(1,hfr(0)%ns)));t2=0;t2(:,1:hfr(0)%ns)=hfr(0)%g(:,1:hfr(0)%ns);call move_alloc(t2,hfr(slot)%g)
+  allocate(t3(nsnapf,size(hfr(0)%c,2),max(1,hfr(0)%ns)));t3=0;t3(:,:,1:hfr(0)%ns)=hfr(0)%c(:,:,1:hfr(0)%ns)
+  call move_alloc(t3,hfr(slot)%c)
+  hfr(slot)%n=hfr(0)%n;hfr(slot)%ns=hfr(0)%ns
+  deallocate(hfr(0)%v,hfr(0)%g,hfr(0)%c);hfr(0)%n=0;hfr(0)%ns=0
+ end subroutine
 ! @nativefn NR2-M01-F0007
  subroutine finish_run(status)
   integer,intent(in)::status
-  plant(8:10)=0;plant(12)=0;current%status=status;running=.false.
+  plant(8:10)=0;plant(12)=0;current%status=status;running=.false.;current%finished=iso_now()
+  if(status==1)then
+   call log_event(ev_run_complete,0,0)
+  else if(status==5)then
+   call log_event(ev_host_crash,current%ncy,0)
+  else
+   call log_event(ev_run_aborted,status,current%ncy)
+  end if
   call apply_record_scenario(current)
   call analyse(current)
   if(nh<maxruns)then
-   nh=nh+1;history(nh)=current;selected=nh
+   nh=nh+1;call file_highrate(nh);current%hf_slot=nh;history(nh)=current;selected=nh
   end if
   remaining=remaining-1
   if(status/=1)remaining=0
@@ -228,6 +410,8 @@ contains
   logical::hit
   k=current%ncy+1;late=[.025d0,.025d0]
   p=current%params
+  call log_event(ev_read_start,k,0)
+  current%acq_t(k)=current%elapsed;current%acq_zone(:,k)=measured
   do w=1,current%nw
    if(current%present(w)==0)then
     current%y(k,w)=-1;current%y2(k,w)=-1;cycle
@@ -270,26 +454,30 @@ contains
    end if
    current%y(k,w)=real(max(0,min(65535,nint(sig))),c_double)
    current%y2(k,w)=real(max(0,min(65535,nint(sig2))),c_double)
+   current%rawsig(k,w,:)=real([sig,sig2],c_float);current%lightf(k,w)=real(light,c_float)
+   current%cutf(k,w,:)=real([cut/max(1d0,probe(1,w)),refcut/max(1d0,probe2(1,w))],c_float)
   end do
+  call log_event(ev_read_end,k,0)
   current%ncy=k
   if(current%scenario==22.and.k>=nint(p(1)))then
    call finish_run(5)
   else if(k==current%planned_cycles)then
    call finish_run(1)
   else
-   phase=1;hold=0;target=95
+   call log_event(ev_step_end,current%nhold,1)
+   phase=current%nhold;hold=0;target=95
+   call log_event(ev_step_start,current%nhold,0)
   end if
  end subroutine
 ! @nativefn NR2-M01-F0009
  subroutine advance_one()
   integer::i,w,z,lastsec,nowsec
   real(c_double)::obs(6),cfg(4),mcfg(5),out(4),primary(2),secondary(2),seconds,dt,p(6),lid,ann,t,tm
-  integer::code
+  integer::code,stg,stp
   logical::hit
-  dt=.05d0;code=current%scenario;p=current%params;ann=60;lid=105
-  if(code==3)lid=p(1)
-  if(code==20.or.code==34.or.code==35)ann=p(1)
-  if(phase==2)target=ann
+  dt=.05d0;code=current%scenario;p=current%params;ann=current%ann_t;lid=current%lid_t
+  ann=current%ann_t
+  if(phase==current%nhold+1)target=ann
   cfg=[.55d0,.25d0,.06d0,.08d0]
   do z=1,2
    plant(7+z)=r2_pid_step(cfg,pid(:,z),target,measured(z),dt,.0045d0)
@@ -298,9 +486,11 @@ contains
   plant(10)=clamp(.2d0*(lid-plant(5)),0d0,1d0);plant(11)=clamp(.3d0+(plant(6)-35)/20,.3d0,1d0)
   if(code==13.and.current%elapsed>=p(1))plant(13)=1
   if(code==13.and.current%elapsed>=p(1)+p(2))then
+   call log_event(ev_interlock,13,0)
    call finish_run(7);return
   end if
   if(code==14.and.current%elapsed>=p(1))then
+   call log_event(ev_interlock,14,0)
    call finish_run(7);return
   end if
   do i=1,50
@@ -339,23 +529,46 @@ contains
   if(nowsec>current%nt.and.current%nt<maxtrace)then
    current%nt=current%nt+1
    current%trace(:,current%nt)=[current%elapsed,primary,secondary(1),secondary(2),target]
+   call log_telemetry(primary,secondary,out(3))
+   if(mod(nowsec,snap_every)==0)call log_chemistry()
+  end if
+  hf_tick=hf_tick+1
+  if(mod(hf_tick,2)==0)call log_highrate(primary,secondary)
+  if(current%lid_ready==0.and.plant(5)>=lid-2)then
+   current%lid_ready=1;call log_event(ev_lid_ready,nint(plant(5)*1000),0)
   end if
   if(out(4)/=0)then
+   call log_event(ev_monitor_stop,nint(out(3)*1000),0)
    call finish_run(3);return
   end if
   if(current%elapsed>7900)then
+   call log_event(ev_time_limit,0,0)
    call finish_run(4);return
   end if
   if(abs((plant(1)+plant(2))/2-target)<.5d0)then
+   if(hold==0)then
+    call stage_step(phase,stg,stp);call log_event(ev_target_reached,stg,stp)
+   end if
    hold=hold+dt
   else
    hold=0
   end if
-  if(phase==0.and.hold>=120)then
-   phase=1;hold=0
-  else if(phase==1.and.hold>=10)then
-   phase=2;hold=0;target=ann
-  else if(phase==2.and.hold>=30)then
+  if(phase<current%nhold)then
+   if(hold>=current%hold_s(phase+1))then
+    call log_event(ev_step_end,phase,0)
+    phase=phase+1;hold=0
+    if(phase<current%nhold)then
+     target=current%hold_t(phase+1)
+    else
+     target=95
+    end if
+    call log_event(ev_stage_start,phase,0);call log_event(ev_step_start,phase,0)
+   end if
+  else if(phase==current%nhold.and.hold>=current%den_s)then
+   call log_event(ev_step_end,phase,0)
+   phase=phase+1;hold=0;target=ann
+   call log_event(ev_step_start,current%nhold,1)
+  else if(phase==current%nhold+1.and.hold>=current%ann_hold)then
    call acquire()
   end if
  end subroutine
