@@ -45,6 +45,19 @@ module native_model
  integer, save :: hf_tick=0
  real(c_double),save :: random=1,independent=2,reference_random=3,scenario_random=4,contact(maxw)=25,measured(2)=25,monitor(6)=0,hold=0,target=95,budget=0
  character(len=160),save :: message='Ready. Native Fortran application.'
+ ! Scenario preview: a normal reference run and a fault run simulated with the full model
+ ! (same seed, telemetry logging skipped) and kept out of the run history.
+ logical,save :: preview_mode=.false.
+ integer,save :: pv_state=0,pv_code=-1,pv_key(8)=-1,pv_saved_scenario=0,pv_steps=3000
+ ! Curves and calls of a preview run (the full record is not kept).
+ type curve_t
+  integer :: nw=0,ncy=0,ne=3,nr=3,status=0,present(maxw)=1
+  real(c_double) :: y(45,maxw)=0,y2(45,maxw)=0,cq(maxw)=0,cq2(maxw)=0,params(6)=0
+ end type
+ type(curve_t),save :: pv_norm,pv_fault
+ ! Multi-case selection: number of runs requested per scenario code (0 = normal run).
+ integer,save :: sel_n(0:51)=0,sel_last(0:51)=1,qn=0,qpos=0,qcode(52)=0,qreps(52)=0,q_saved=0
+ logical,save :: queue_active=.false.
 contains
 ! @nativefn NR2-M01-F0001
  function integer_text(v) result(s)
@@ -62,6 +75,11 @@ contains
   do q=n,1,-1
    s(k:k)=rev(q:q);k=k+1
   end do
+ end function
+! @nativefn NR2-M01-F0040
+ logical function ui_busy() result(b)
+  ! A real acquisition is in progress (a background scenario preview does not count).
+  b=running.and..not.preview_mode
  end function
 ! @nativefn NR2-M01-F0002
  function real_text(v,decimals) result(s)
@@ -152,6 +170,7 @@ contains
   ! One row per simulated second, logged at the same instant as the existing trace.
   real(c_double),intent(in)::primary(2),secondary(2),gap
   integer::stage,step,state,cyc,busy
+  if(preview_mode)return
   if(current%ntel_rows>=maxtrace)return
   call stage_step(phase,stage,step)
   state=2;if(hold>0)state=3
@@ -171,6 +190,7 @@ contains
   ! 10 s snapshot: controller and plant state (g) and the reaction state of every well (c).
   integer::w,k
   real(c_double)::tw
+  if(preview_mode)return
   if(.not.allocated(hfr(0)%g))return
   if(hfr(0)%ns>=size(hfr(0)%g,2))return
   hfr(0)%ns=hfr(0)%ns+1;k=hfr(0)%ns
@@ -188,6 +208,7 @@ contains
   ! 10 Hz telemetry row (every second 50 ms model step), same quantities as the R2 record.
   real(c_double),intent(in)::primary(2),secondary(2)
   integer::stage,step,state,cyc,busy,k
+  if(preview_mode)return
   if(.not.allocated(hfr(0)%v))return
   if(hfr(0)%n>=size(hfr(0)%v,2))return
   call stage_step(phase,stage,step)
@@ -265,6 +286,7 @@ contains
   current=run_t();current%serial=nh+1;current%nw=p_ext*p_rep+5
   current%ne=p_ext;current%nr=p_rep;current%copies=p_copies;current%threshold=p_threshold
   current%seed=p_seed+nh*7919;current%fault=p_fault;current%scenario=p_scenario
+  if(preview_mode)current%seed=p_seed
   if(p_scenario>0)current%params=scenario_bank(:,p_scenario)
   p=current%params
   if(p_scenario==20)current%planned_cycles=nint(p(2))
@@ -353,9 +375,11 @@ contains
  end subroutine
 ! @nativefn NR2-M01-F0006
  subroutine start_batch()
+  if(preview_mode)call cancel_preview()
   if(running)then
    message='A batch is already running.';return
   end if
+  queue_active=.false.;qn=0
   if(nh+p_runs>maxruns)then
    message='History capacity is 32 runs. Export and restart the application.';return
   end if
@@ -381,6 +405,9 @@ contains
  subroutine finish_run(status)
   integer,intent(in)::status
   plant(8:10)=0;plant(12)=0;current%status=status;running=.false.;current%finished=iso_now()
+  if(preview_mode)then
+   call apply_record_scenario(current);call analyse(current);call preview_filed();return
+  end if
   if(status==1)then
    call log_event(ev_run_complete,0,0)
   else if(status==5)then
@@ -394,7 +421,12 @@ contains
    nh=nh+1;call file_highrate(nh);current%hf_slot=nh;history(nh)=current;selected=nh
   end if
   remaining=remaining-1
-  if(status/=1)remaining=0
+  if(status==2)then
+   if(queue_active)p_scenario=q_saved
+   remaining=0;queue_active=.false.;qn=0
+  else if(status/=1.and..not.queue_active)then
+   remaining=0
+  end if
   if(status==1)message='Virtual run filed. Open MISSY Results.'
   if(status==2)message='Stopped by operator. Partial run filed; batch cancelled.'
   if(status==3)message='Independent monitor stopped the run. Heating inhibited.'
@@ -640,7 +672,23 @@ contains
  subroutine tick_model(wall_ms)
   real(c_double),intent(in)::wall_ms
   integer::i,steps
+  if(preview_mode)then
+   if(.not.running)call preview_begin()
+   do i=1,pv_steps
+    if(.not.running)exit
+    call advance_one()
+   end do
+   return
+  end if
   if(.not.running)then
+   if(remaining<=0.and.queue_active)then
+    if(qpos<qn)then
+     qpos=qpos+1;p_scenario=qcode(qpos);remaining=qreps(qpos)
+    else
+     queue_active=.false.;qn=0;p_scenario=q_saved
+     message='Selected cases completed and filed. Open MISSY Results.'
+    end if
+   end if
    if(remaining>0)call begin_run()
    return
   end if
@@ -650,5 +698,95 @@ contains
    if(.not.running)exit
    call advance_one()
   end do
+ end subroutine
+! @nativefn NR2-M01-F0048
+ function curves_of(r) result(c)
+  type(run_t),intent(in)::r
+  type(curve_t)::c
+  c%nw=r%nw;c%ncy=r%ncy;c%ne=r%ne;c%nr=r%nr;c%status=r%status;c%present=r%present
+  c%y=r%y;c%y2=r%y2;c%cq=r%cq;c%cq2=r%cq2;c%params=r%params
+ end function
+! @nativefn NR2-M01-F0041
+ subroutine start_preview(code)
+  ! Simulates the normal reference (cached per profile) and then the selected fault case.
+  integer,intent(in)::code
+  integer::key(8)
+  if(running.and..not.preview_mode)return
+  if(preview_mode)call cancel_preview()
+  if(.not.scenario_available(code))then
+   pv_state=0;pv_code=code;return
+  end if
+  key=[p_ext,p_rep,p_copies,p_threshold,p_seed,p_prog,p_fault,1]
+  pv_saved_scenario=p_scenario;pv_code=code;preview_mode=.true.
+  if(all(key==pv_key))then
+   pv_state=2
+  else
+   pv_key=key;pv_state=1
+  end if
+  call preview_begin()
+ end subroutine
+! @nativefn NR2-M01-F0042
+ subroutine preview_begin()
+  ! begin_run reads the case from p_scenario; the selection shown in the interface is kept.
+  character(len=160)::keep
+  integer::shown
+  keep=message;shown=p_scenario
+  p_scenario=pv_code;if(pv_state==1)p_scenario=0
+  call begin_run();message=keep;p_scenario=shown
+ end subroutine
+! @nativefn NR2-M01-F0043
+ subroutine preview_filed()
+  ! Called by finish_run while previewing: keeps the record out of the history.
+  if(pv_state==1)then
+   pv_norm=curves_of(current);pv_state=2   ! the fault run starts on the next tick
+  else
+   pv_fault=curves_of(current);call preview_end()
+  end if
+ end subroutine
+! @nativefn NR2-M01-F0044
+ subroutine preview_end()
+  pv_state=3;preview_mode=.false.;p_scenario=pv_saved_scenario;running=.false.;current=run_t()
+  if(allocated(hfr(0)%v))deallocate(hfr(0)%v)
+  if(allocated(hfr(0)%g))deallocate(hfr(0)%g)
+  if(allocated(hfr(0)%c))deallocate(hfr(0)%c)
+  hfr(0)%n=0;hfr(0)%ns=0
+ end subroutine
+! @nativefn NR2-M01-F0045
+ subroutine cancel_preview()
+  if(.not.preview_mode)return
+  if(pv_state==1)pv_key=-1
+  call preview_end();pv_state=0
+ end subroutine
+! @nativefn NR2-M01-F0046
+ integer function selection_runs() result(n)
+  integer::c
+  n=0
+  do c=0,51
+   if(sel_n(c)>0.and.scenario_available(c))n=n+sel_n(c)
+  end do
+ end function
+! @nativefn NR2-M01-F0047
+ subroutine start_selection()
+  ! Runs every selected case the requested number of times, one after another.
+  integer::c,n
+  if(preview_mode)call cancel_preview()
+  if(running)then
+   message='A batch is already running.';return
+  end if
+  n=selection_runs()
+  if(n==0)then
+   message='Select at least one case (or the normal run) first.';return
+  end if
+  if(nh+n>maxruns)then
+   message='History capacity is 32 runs: reduce the selection or export and restart.';return
+  end if
+  qn=0
+  do c=0,51
+   if(sel_n(c)>0.and.scenario_available(c))then
+    qn=qn+1;qcode(qn)=c;qreps(qn)=sel_n(c)
+   end if
+  end do
+  q_saved=p_scenario;queue_active=.true.;qpos=1;p_scenario=qcode(1);remaining=qreps(1)
+  call begin_run()
  end subroutine
 end module

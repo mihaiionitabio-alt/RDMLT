@@ -10,6 +10,8 @@ module native_ui
  use stdlib_browser_stats
  use native_codec, only: sha256_hex, deflate_fixed, zlen
  use native_references
+ use native_anim
+ use native_structure, only: st_n,st_kind
  use native_scenarios
  use r2_math, only: rng_uniform, rng_gauss
  use r2_thermal
@@ -17,7 +19,7 @@ module native_ui
  use r2_monitor
  use r2_optics
  implicit none
- integer,save::width=1280,height=820,page=-1,graphmode=0,catalog_page=0,edit_param=0,nb=0,buttons(7,80)=0,request=0
+ integer,save::width=1280,height=820,page=-1,graphmode=0,catalog_page=0,edit_param=0,nb=0,buttons(7,200)=0,request=0
  character(len=24),save::edit_buffer=''
  logical,save::show_group(5,maxruns)=.true.,show_name(maxw,maxruns)=.true.
  logical,save::dirty=.true.,dragging=.false.
@@ -32,12 +34,15 @@ module native_ui
   'Hydrolysis probe and detector optics','Cq threshold analysis','Scenario identifiers, titles and kinds (51)', &
   'Scenario parameter labels and bounds','Scenario default parameter bank (51 x 6)','Native profile defaults', &
   'Run history store (32 runs)','CRC-32 lookup table','SHA-256 message digest','DEFLATE compressor (fixed Huffman, LZ77)', &
-  'ZIP and RDMLt export buffers','References and edition notes (115 entries)','Home and navigation', &
-  'Virtual PCR acquisition view and charts','Results and curve selection','Profile, scenario catalogue and editors', &
+  'ZIP and RDMLt export buffers','References and edition notes (122 entries)','Home and navigation', &
+  'Virtual PCR acquisition view and charts','Results and curve selection','Scenario catalogue, animations, 8UCU structure', &
   'References page']
  integer,save::boot_next=1,boot_pending=0,boot_failed=0,ref_page=0
  real(c_double),save::boot_anim=0,boot_ms=0,boot_el(0:nboot)=0,host_ms=-1,host_mb=-1,boot_done_ms=0
  logical,save::booted=.false.
+ real(c_double),save::anim_t=0,anim_acc=0
+ integer,save::pv_channel=1
+ logical,save::show_fault=.true.,show_structure=.false.
  integer(c_int32_t),parameter::bg=int(z'FF10090D',c_int32_t),orange=int(z'FF649BFF',c_int32_t)
  integer(c_int32_t),parameter::purple=int(z'FFC99ACB',c_int32_t),ink=int(z'FFF3E0EA',c_int32_t)
  integer(c_int32_t),parameter::panel=int(z'FF281723',c_int32_t),cyan=int(z'FFDCDC60',c_int32_t)
@@ -118,9 +123,10 @@ contains
   logical,intent(in)::enabled
   character(len=*),intent(in)::s
   integer(c_int32_t)::c
+  if(nb>=size(buttons,2))return
   nb=nb+1;buttons(:,nb)=[id,arg,x,y,w,h,0];if(enabled)buttons(7,nb)=1
   c=panel;if(enabled)c=purple
-  if(id==2.and.enabled)c=orange
+  if((id==2.or.id==53).and.enabled)c=orange
   call soft_panel(x,y,w,h,min(20,h/2),c)
   if(enabled)then
    call label(s,x+12,y+max(0,(h-18)/2),bg,1)
@@ -142,7 +148,7 @@ contains
    nc=r%nw;sty(2:40:2)=-1
    do w=1,nc
     starts(w)=n
-    if(.not.running.and.selected>0)then
+    if(.not.ui_busy().and.selected>0)then
      if(.not.result_visible(r,w))cycle
     end if
     do i=1,r%ncy
@@ -328,14 +334,14 @@ contains
    y=165+(i-1)*52
    call label(trim(names(i)),60,y+12,ink,1)
    call label(trim(integer_text(vals(i))),470,y+8,orange,2)
-   call button(14,i,'-',650,y,64,42,.not.running)
-   call button(15,i,'+',730,y,64,42,.not.running)
+   call button(14,i,'-',650,y,64,42,.not.ui_busy())
+   call button(15,i,'+',730,y,64,42,.not.ui_busy())
   end do
   call label('Fixed generic probe assay: positive, NTC, extraction blank, and 2 LOD wells.',60,605,purple,1)
   call button(12,0,'Download profile',60,655,180,46,.true.)
-  call button(13,0,'Load profile / native RDMLt',260,655,250,46,.not.running)
-  call button(2,0,'Start batch',530,655,180,46,.not.running.and.scenario_available(p_scenario))
-  call button(20,0,'qPCR error scenarios',730,655,240,46,.not.running)
+  call button(13,0,'Load profile / native RDMLt',260,655,250,46,.not.ui_busy())
+  call button(2,0,'Start batch',530,655,180,46,.not.ui_busy().and.scenario_available(p_scenario))
+  call button(20,0,'qPCR error scenarios',730,655,240,46,.not.ui_busy())
  end subroutine
 ! @nativefn NR2-M03-F0026
  subroutine wrapped(s,x,y,chars,color)
@@ -358,50 +364,365 @@ contains
  end subroutine
 ! @nativefn NR2-M03-F0027
  subroutine draw_catalogue()
-  integer::i,code,x,y,col,row,cw
+  ! Cards: open (click), select (tick box) and repeat count (- / +). Selected cases run in
+  ! catalogue order, each the requested number of times.
+  integer::i,code,x,y,col,row,cw,free,ncase,nrun,c
+  integer(c_int32_t)::edge
+  character(len=200)::info
   call label('qPCR error scenarios - editable Fortran configurations',60,128,orange,2)
-  call label('48 fault cases + 2 analysis cases. Melt case is editable but cannot run on this probe model.',60,173,ink,1)
+  call label('Tick cards to queue them and set how many runs each. Click a card to see its animation, '// &
+   'fault-versus-normal curves and settings.',60,173,ink,1)
   cw=(width-150)/2
   do i=1,6
    code=catalog_page*6+i;if(code>51)exit
-   col=mod(i-1,2);row=(i-1)/2;x=60+col*(cw+30);y=220+row*125
-   call button(21,code,'',x,y,cw,110,.not.running)
-   call label(trim(integer_text(code))//' | '//trim(scenario_ids(code))//' | '//trim(scenario_kinds(code)),x+12,y+8,bg,1)
-   call wrapped(trim(scenario_titles(code)),x+12,y+37,max(25,(cw-30)/9),bg)
+   col=mod(i-1,2);row=(i-1)/2;x=60+col*(cw+30);y=208+row*142
+   call button(21,code,'',x,y,cw,134,.not.ui_busy())
+   edge=purple;if(sel_n(code)>0)edge=orange
+   call soft_panel(x,y,cw,134,20,edge)
+   call soft_panel(x+4,y+4,cw-8,126,17,purple)
+   call label(trim(integer_text(code))//' | '//trim(scenario_ids(code))//' | '//trim(scenario_kinds(code)),x+14,y+9,bg,1)
+   call label(trim(category_name(code)),x+cw-14-text_px(trim(category_name(code)),1),y+9,panel,1)
+   call wrapped_px(trim(scenario_titles(code)),x+14,y+34,cw-36,bg)
+   call label('Scene: '//trim(scene_name(code))//'  |  curves: full model vs normal',x+14,y+60+22*(min(2,wrap_rows(trim(scenario_titles(code)),cw-36))-1),panel,1)
+   info=param_summary(code)
+   call label(info(1:max(1,min(len_trim(info),(cw-240)/7))),x+14,y+104,panel,1)
+   call check_box(50,code,x+cw-208,y+96,sel_n(code)>0,.not.ui_busy().and.scenario_available(code))
+   call button(51,code,'-',x+cw-168,y+96,38,30,.not.ui_busy())
+   call label(achar(195)//achar(151)//trim(integer_text(sel_n(code))),x+cw-122,y+102,bg,1)
+   call button(52,code,'+',x+cw-70,y+96,38,30,.not.ui_busy().and.scenario_available(code))
   end do
-  call button(22,0,'Previous',60,625,140,44,catalog_page>0)
-  call label(trim(integer_text(catalog_page+1))//' / 9',220,635,ink,1)
-  call button(23,0,'Next',320,625,140,44,catalog_page<8)
-  call button(26,0,'Normal run',480,625,180,44,.not.running)
-  call button(12,0,'Save profile + all 51 settings',680,625,310,44,.true.)
-  call label('Select a card to edit. Settings apply to subsequent runs; previous records keep their own snapshot.',60,695,purple,1)
+  y=640
+  call button(22,0,'Previous',60,y,130,42,catalog_page>0)
+  call label(trim(integer_text(catalog_page+1))//' / 9',205,y+12,ink,1)
+  call button(23,0,'Next',265,y,130,42,catalog_page<8)
+  call label('Normal run',470,y+12,ink,1)
+  call check_box(50,0,425,y+6,sel_n(0)>0,.not.ui_busy())
+  call button(51,0,'-',570,y+6,38,30,.not.ui_busy())
+  call label(achar(195)//achar(151)//trim(integer_text(sel_n(0))),616,y+12,ink,1)
+  call button(52,0,'+',664,y+6,38,30,.not.ui_busy())
+  ncase=0
+  do c=0,51
+   if(sel_n(c)>0.and.scenario_available(c))ncase=ncase+1
+  end do
+  nrun=selection_runs();free=maxruns-nh
+  call button(53,0,'Run selection: '//trim(integer_text(ncase))//' case(s), '//trim(integer_text(nrun))//' run(s)', &
+   730,y,330,42,.not.ui_busy().and.nrun>0.and.nrun<=free)
+  call button(54,0,'Clear',1075,y,110,42,.not.ui_busy().and.nrun>0)
+  call button(12,0,'Save profile + all 51 settings',60,y+58,310,42,.true.)
+  call button(5,0,'Configure profile',390,y+58,210,42,.not.ui_busy())
+  call label('History: '//trim(integer_text(nh))//' filed, '//trim(integer_text(free))// &
+   ' free of 32. Each run uses the profile on the Configure page.',620,y+70,purple,1)
+  call label(trim(message),60,y+122,cyan,1)
  end subroutine
+! @nativefn NR2-M03-F0101
+ subroutine check_box(id,arg,x,y,checked,enabled)
+  integer,intent(in)::id,arg,x,y
+  logical,intent(in)::checked,enabled
+  call button(id,arg,'',x,y,30,30,enabled)
+  if(checked)then
+   call soft_panel(x+4,y+4,22,22,6,orange)
+   call aa_line(x+9d0,y+15d0,x+14d0,y+21d0,bg,2.5d0,.false.,[0d0,0d0,1d4,1d4])
+   call aa_line(x+14d0,y+21d0,x+22d0,y+9d0,bg,2.5d0,.false.,[0d0,0d0,1d4,1d4])
+  else
+   call soft_panel(x+5,y+5,20,20,5,panel)
+   call soft_panel(x+8,y+8,14,14,3,purple)
+  end if
+ end subroutine
+! @nativefn NR2-M03-F0102
+ function category_name(code) result(s)
+  integer,intent(in)::code
+  character(len=24)::s
+  select case(code)
+  case(1:14)
+   s='Hardware'
+  case(15:22)
+   s='Software'
+  case(23:33)
+   s='Reagents'
+  case(34:40)
+   s='Human: set-up'
+  case(41:46)
+   s='Human: handling'
+  case default
+   s='Interpretation'
+  end select
+ end function
+! @nativefn NR2-M03-F0109
+ function scene_name(code) result(s)
+  integer,intent(in)::code
+  character(len=32)::s
+  select case(scene_family(code))
+  case(1)
+   s='instrument cross-section'
+  case(2)
+   s='molecules in the well'
+  case(3)
+   s='wells and plate map'
+  case default
+   s='data path and analysis'
+  end select
+ end function
+! @nativefn NR2-M03-F0103
+ function param_summary(code) result(s)
+  ! First editable settings of a case, e.g. "Edge temperature deficit (C) = 7".
+  integer,intent(in)::code
+  character(len=200)::s
+  integer::i,k
+  s='';k=0
+  do i=1,6
+   if(len_trim(parameter_names(i,code))==0)cycle
+   if(index(parameter_names(i,code),'scope')>0.or.index(parameter_names(i,code),'mask')>0)cycle
+   if(index(parameter_names(i,code),'seed')>0)cycle
+   if(k>0)then
+    s=trim(s)//';  '//trim(parameter_names(i,code))//' = '//trim(real_text(scenario_bank(i,code),3))
+   else
+    s=trim(parameter_names(i,code))//' = '//trim(real_text(scenario_bank(i,code),3))
+   end if
+   k=k+1;if(k==2)exit
+  end do
+  if(k==0)s='No editable settings'
+ end function
 ! @nativefn NR2-M03-F0028
  subroutine draw_scenario()
-  integer::i,y,row
+  integer::i,y,row,px,pw
   row=0
   if(p_scenario<1)return
-  call label(trim(integer_text(p_scenario))//' | '//trim(scenario_ids(p_scenario))//' | '//trim(scenario_kinds(p_scenario)),60,127,cyan,1)
-  call wrapped(trim(scenario_titles(p_scenario)),60,158,max(40,(width-130)/13),orange)
+  px=650;pw=width-px-40
+  call label(trim(integer_text(p_scenario))//' | '//trim(scenario_ids(p_scenario))//' | '//trim(scenario_kinds(p_scenario))// &
+   ' | '//trim(category_name(p_scenario)),60,127,cyan,1)
+  call wrapped_px(trim(scenario_titles(p_scenario)),60,152,560,orange)
   do i=1,6
    if(len_trim(parameter_names(i,p_scenario))==0)cycle
-   y=230+row*56;row=row+1
-   call label(trim(parameter_names(i,p_scenario)),60,y+10,ink,1)
-   call button(30,i,trim(real_text(scenario_bank(i,p_scenario),3)),550,y,210,42,.not.running.and.scenario_step(i,p_scenario)>0)
-   if(edit_param==i)call label(trim(edit_buffer)//'_',560,y+11,cyan,1)
-   call button(24,i,'-',780,y,64,42,.not.running.and.scenario_step(i,p_scenario)>0)
-   call button(25,i,'+',860,y,64,42,.not.running.and.scenario_step(i,p_scenario)>0)
-   call label(trim(real_text(scenario_min(i,p_scenario),3))//' .. '//trim(real_text(scenario_max(i,p_scenario),3)),950,y+10,purple,1)
+   y=218+row*54;row=row+1
+   call label(trim(parameter_names(i,p_scenario)),60,y+2,ink,1)
+   call label(trim(real_text(scenario_min(i,p_scenario),3))//' .. '//trim(real_text(scenario_max(i,p_scenario),3)),60,y+24,purple,1)
+   call button(30,i,trim(real_text(scenario_bank(i,p_scenario),3)),330,y,140,42,.not.ui_busy().and.scenario_step(i,p_scenario)>0)
+   if(edit_param==i)call label(trim(edit_buffer)//'_',340,y+11,cyan,1)
+   call button(24,i,'-',482,y,48,42,.not.ui_busy().and.scenario_step(i,p_scenario)>0)
+   call button(25,i,'+',540,y,48,42,.not.ui_busy().and.scenario_step(i,p_scenario)>0)
   end do
-  call label('Click a value to type; Enter applies, Escape cancels. Or use - / +.',60,575,cyan,1)
-  call label('Scope: 0 default, 1 all, 2 samples, 3 controls, 4 edge, 5 patch, 6 NTC + blank.',60,600,ink,1)
-  call label('Mask overrides scope; controls follow samples. Precision: 0.001.',60,625,ink,1)
-  call button(20,0,'Back to catalogue',60,655,220,44,.true.)
-  call button(27,0,'Reset this case',300,655,180,44,.not.running)
-  call button(12,0,'Save all settings',500,655,180,44,.true.)
-  call button(2,0,'Run selected case',700,655,220,44,.not.running.and.scenario_available(p_scenario))
-  if(p_scenario==21)call label('Not reproducible: requires an intercalating-dye melt acquisition workflow.',60,710,orange,1)
+  y=218+row*54+6
+  call wrapped_px('Click a value to type; Enter applies, Escape cancels; or use - / +. Scope: 0 default, 1 all, '// &
+   '2 samples, 3 controls, 4 edge, 5 patch, 6 NTC + blank. Mask overrides scope.',60,y,560,ink)
+  if(p_scenario==21)call wrapped_px('Not reproducible: requires an intercalating-dye melt acquisition workflow.',60,y+70,560,orange)
+  ! animation and curves
+  if(show_structure.and.scene_family(p_scenario)==2)then
+   call draw_structure_scene(p_scenario,scenario_bank(:,p_scenario),real(px,c_double),125d0,real(pw,c_double),270d0,anim_t,show_fault)
+  else
+   call draw_fault_scene(p_scenario,scenario_bank(:,p_scenario),real(px,c_double),125d0,real(pw,c_double),270d0,anim_t,show_fault)
+  end if
+  if(show_fault)then
+   call button(59,0,'Scene: fault',px,402,140,40,.true.)
+  else
+   call button(59,0,'Scene: normal',px,402,140,40,.true.)
+  end if
+  if(pv_channel==1)then
+   call button(58,0,'FAM',px+150,402,110,40,.true.)
+  else
+   call button(58,0,'YY',px+150,402,110,40,.true.)
+  end if
+  call button(57,0,'Recompute curves',px+270,402,175,40,.not.ui_busy().and.scenario_available(p_scenario))
+  if(scene_family(p_scenario)==2)then
+   if(show_structure)then
+    call button(60,0,'Cycle view',px+455,402,pw-455,40,.true.)
+   else
+    call button(60,0,'Structure',px+455,402,pw-455,40,.true.)
+   end if
+  end if
+  call plot_preview(px,452,pw,height-452-150)
+  y=height-130
+  call button(20,0,'Back to catalogue',60,y,210,42,.true.)
+  call button(27,0,'Reset this case',285,y,175,42,.not.ui_busy())
+  call button(12,0,'Save all settings',475,y,175,42,.true.)
+  call button(2,0,'Run this case now',665,y,210,42,.not.ui_busy().and.scenario_available(p_scenario))
+  call label('In selection',895,y+12,ink,1)
+  call check_box(50,p_scenario,1010,y+6,sel_n(p_scenario)>0,.not.ui_busy().and.scenario_available(p_scenario))
+  call button(51,p_scenario,'-',1050,y+6,38,30,.not.ui_busy())
+  call label(achar(195)//achar(151)//trim(integer_text(sel_n(p_scenario))),1096,y+12,ink,1)
+  call button(52,p_scenario,'+',1144,y+6,38,30,.not.ui_busy().and.scenario_available(p_scenario))
+  call label(trim(message),60,y+60,cyan,1)
  end subroutine
+! @nativefn NR2-M03-F0104
+ subroutine plot_preview(x,y,w,h)
+  ! Fault (coloured by well role) against the normal reference (purple), both computed by the
+  ! full thermal / chemistry / detector model with the same seed and profile.
+  integer,intent(in)::x,y,w,h
+  real(c_double)::lo,hi,gx,gy,gw,gh,clip(4),v,v1,cqn,cqf
+  integer::k,wl,s,nshow
+  integer(c_int32_t)::c
+  logical::have_n,have_f,stale
+  character(len=160)::st
+  call soft_panel(x,y,w,h,12,panel)
+  gx=x+56;gy=y+34;gw=w-76;gh=h-96;clip=[gx,gy-2,gx+gw,gy+gh+2]
+  have_n=pv_code==p_scenario.and.pv_state>=2
+  have_f=pv_code==p_scenario.and.(pv_state==3.or.(pv_state==2.and.preview_mode))
+  stale=.false.
+  if(pv_code==p_scenario.and.pv_state==3)stale=any(abs(pv_fault%params-scenario_bank(:,p_scenario))>1d-9)
+  if(.not.scenario_available(p_scenario))then
+   st='No curves: this case needs a melt workflow the probe model does not have.'
+  else if(pv_code/=p_scenario.or.pv_state==0)then
+   st='Press Recompute curves to simulate this case against the normal reference.'
+  else if(pv_state==1)then
+   st='Simulating the normal reference: cycle '//trim(integer_text(current%ncy))//' / 45'
+  else if(pv_state==2)then
+   st='Simulating the fault: cycle '//trim(integer_text(current%ncy))//' / 45'
+  else if(stale)then
+   st='Settings changed since these curves: press Recompute curves.'
+  else
+   st='Full numerical model, same seed and profile: fault (colours) vs normal (purple).'
+  end if
+  call label(trim(st),x+14,y+8,cyan,1)
+  lo=1d9;hi=-1d9
+  call range_of(pv_norm,have_n);call range_of_f()
+  if(pv_code==p_scenario.and.pv_state==1.and.preview_mode)call range_of(curves_of(current),.true.)
+  if(hi<lo)then
+   lo=0;hi=1000
+  end if
+  if(hi-lo<200)hi=lo+200
+  call aa_line(gx,gy+gh,gx+gw,gy+gh,purple,1d0,.false.,[0d0,0d0,1d4,1d4])
+  call aa_line(gx,gy,gx,gy+gh,purple,1d0,.false.,[0d0,0d0,1d4,1d4])
+  do k=0,45,5
+   call aa_line(gx+gw*(k-1)/44d0,gy+gh,gx+gw*(k-1)/44d0,gy+gh+4,purple,1d0,.false.,[0d0,0d0,1d4,1d4])
+   if(k>0)call label(trim(integer_text(k)),nint(gx+gw*(k-1)/44d0)-6,nint(gy+gh)+6,ink,1)
+  end do
+  call label(trim(integer_text(nint(hi))),x+6,nint(gy)-6,ink,1)
+  call label(trim(integer_text(nint(lo))),x+6,nint(gy+gh)-14,ink,1)
+  call label('cycle',nint(gx+gw)-40,nint(gy+gh)+24,purple,1)
+  if(have_n)call curves(pv_norm,.true.)
+  if(pv_code==p_scenario.and.pv_state==1.and.preview_mode)call curves(curves_of(current),.true.)
+  if(have_f)then
+   if(pv_state==3)then
+    call curves(pv_fault,.false.)
+   else
+    call curves(curves_of(current),.false.)
+   end if
+  end if
+  ! Cq summary
+  s=pv_norm%ne*pv_norm%nr
+  if(have_n.and.pv_state==3)then
+   st='Mean sample Cq  normal '//trim(cq_text(mean_cq(pv_norm,1,s)))//'  fault '//trim(cq_text(mean_cq(pv_fault,1,s)))// &
+    '   PC '//trim(cq_text(cqc(pv_norm,s+1)))//' / '//trim(cq_text(cqc(pv_fault,s+1)))// &
+    '   NTC '//trim(cq_text(cqc(pv_norm,s+2)))//' / '//trim(cq_text(cqc(pv_fault,s+2)))// &
+    '   Blank '//trim(cq_text(cqc(pv_norm,s+3)))//' / '//trim(cq_text(cqc(pv_fault,s+3)))
+   if(pv_channel==2)st='YY channel: '//trim(st)
+   call label(trim(st),x+14,y+h-40,ink,1)
+   call label('Fault run: '//trim(status_text(pv_fault%status))//'; '//trim(integer_text(pv_fault%ncy))//' cycles recorded.', &
+    x+14,y+h-20,orange,1)
+  else
+   call label('Legend: purple normal | orange samples | violet PC | green NTC | cyan blank | yellow LOD',x+14,y+h-30,purple,1)
+  end if
+ contains
+  subroutine range_of(r,ok)
+   type(curve_t),intent(in)::r
+   logical,intent(in)::ok
+   integer::i,j
+   if(.not.ok)return
+   do j=1,r%nw
+    if(r%present(j)==0)cycle
+    do i=1,r%ncy
+     v=r%y(i,j);if(pv_channel==2)v=r%y2(i,j)
+     if(v<0)cycle
+     lo=min(lo,v);hi=max(hi,v)
+    end do
+   end do
+  end subroutine
+  subroutine range_of_f()
+   if(.not.have_f)return
+   if(pv_state==3)then
+    call range_of(pv_fault,.true.)
+   else
+    call range_of(curves_of(current),.true.)
+   end if
+  end subroutine
+  subroutine curves(r,normal)
+   type(curve_t),intent(in)::r
+   logical,intent(in)::normal
+   integer::i,j,ss
+   real(c_double)::x0,y0,x1,y1
+   ss=r%ne*r%nr
+   do j=1,r%nw
+    if(r%present(j)==0)cycle
+    c=orange
+    if(j==ss+1)c=rgba(155,145,255,255)
+    if(j==ss+2)c=rgba(75,220,135,255)
+    if(j==ss+3)c=cyan
+    if(j>=ss+4)c=rgba(255,210,70,255)
+    if(normal)c=rgba(150,110,160,255)
+    do i=1,r%ncy-1
+     v=r%y(i,j);v1=r%y(i+1,j)
+     if(pv_channel==2)then
+      v=r%y2(i,j);v1=r%y2(i+1,j)
+     end if
+     if(v<0.or.v1<0)cycle
+     x0=gx+gw*(i-1)/44d0;x1=gx+gw*i/44d0
+     y0=gy+gh-(v-lo)/(hi-lo)*gh;y1=gy+gh-(v1-lo)/(hi-lo)*gh
+     if(normal)then
+      call aa_line(x0,y0,x1,y1,c,1d0,.false.,clip)
+     else
+      call aa_line(x0,y0,x1,y1,c,1.6d0,.false.,clip)
+     end if
+    end do
+   end do
+  end subroutine
+ end subroutine
+! @nativefn NR2-M03-F0105
+ real(c_double) function mean_cq(r,a,b) result(m)
+  type(curve_t),intent(in)::r
+  integer,intent(in)::a,b
+  integer::j,n
+  m=0;n=0
+  do j=a,b
+   if(r%present(j)==0)cycle
+   if(pv_channel==1.and.r%cq(j)>0)then
+    m=m+r%cq(j);n=n+1
+   else if(pv_channel==2.and.r%cq2(j)>0)then
+    m=m+r%cq2(j);n=n+1
+   end if
+  end do
+  if(n>0)then
+   m=m/n
+  else
+   m=0
+  end if
+ end function
+! @nativefn NR2-M03-F0108
+ real(c_double) function cqc(r,j) result(v)
+  type(curve_t),intent(in)::r
+  integer,intent(in)::j
+  v=r%cq(j);if(pv_channel==2)v=r%cq2(j)
+  if(r%present(j)==0)v=0
+ end function
+! @nativefn NR2-M03-F0106
+ function cq_text(v) result(s)
+  real(c_double),intent(in)::v
+  character(len=16)::s
+  if(v>0)then
+   s=real_text(v,1)
+  else
+   s='neg'
+  end if
+ end function
+! @nativefn NR2-M03-F0107
+ function status_text(st) result(s)
+  integer,intent(in)::st
+  character(len=48)::s
+  select case(st)
+  case(1)
+   s='completed'
+  case(3)
+   s='stopped by the independent monitor'
+  case(4)
+   s='protocol time limit'
+  case(5)
+   s='software crash, partial file'
+  case(6)
+   s='set-up rejected'
+  case(7)
+   s='hardware interlock'
+  case default
+   s='stopped'
+  end select
+ end function
 ! ---------------------------------------------------------------- startup screen
 ! @nativefn NR2-M03-F0050
  subroutine boot_step(k)
@@ -498,6 +819,8 @@ contains
    call ensure_work();work(1:1)=' ';call ensure_output(cap);output(1:cap)=0;output_size=0;used=0
   case(20)
    n=count(len_trim(ref_text)>0);if(n/=nref)boot_failed=k
+  case(24)
+   if(st_n/=1390.or.count(st_kind==5)/=31.or.count(st_kind==7)/=1)boot_failed=k
   case default
    continue
   end select
@@ -845,13 +1168,14 @@ contains
   integer::v,cw,shown_cycle,i
   real(c_double)::a0,a1,b0,b1,clipmark(4)
   nb=0
+  if(page/=7.and.preview_mode)call cancel_preview()
   if(page==-1)then
    call allocate_frame(width,height,bg);call draw_boot()
    ptr=c_loc(pixels(1));dirty=.false.;return
   end if
   shown_cycle=current%ncy
-  if(.not.running.and.selected>0)shown_cycle=history(selected)%ncy
-  if(page==1.and.(running.or.selected==0))then
+  if(.not.ui_busy().and.selected>0)shown_cycle=history(selected)%ncy
+  if(page==1.and.(ui_busy().or.selected==0))then
    call draw_chart(current)
   else if(page==1.and.selected>0)then
    call draw_chart(history(selected))
@@ -869,24 +1193,28 @@ contains
   call rectangle(500,32,40,10,cyan)
   call button(1,0,'Home / Go back',width-200,32,170,42,.true.)
   if(page==0)then
-   clipmark=[60d0,145d0,real(width-60,c_double),260d0]
-   do i=0,58
-    a0=60+i*9d0;a1=a0+9;b0=205+25*sin(i*.28d0);b1=205+25*sin((i+1)*.28d0)
-    call aa_line(a0,b0,a1,b1,purple,3d0,.false.,clipmark)
-    call aa_line(a0,410-b0,a1,410-b1,orange,3d0,.false.,clipmark)
-    if(mod(i,3)==0)call aa_line(a0,b0,a0,410-b0,cyan,1d0,.false.,clipmark)
-   end do
+   call anim_helix_banner(60d0,real(width-460,c_double),205d0,25d0,anim_t)
    call soft_panel(width-400,180,340,18,9,purple)
    call soft_panel(width-310,210,250,18,9,orange)
    cw=(width-160)/3
-   call home_card(2,'Virtual PCR','Start the selected virtual experiment',1,60,300,cw,.not.running.and.scenario_available(p_scenario),orange)
+   if(selection_runs()>0)then
+    call home_card(55,'Virtual PCR','Run the selection: '//trim(integer_text(selection_runs()))//' run(s)',1,60,300,cw, &
+     .not.ui_busy().and.selection_runs()<=maxruns-nh,orange)
+   else
+    call home_card(55,'Virtual PCR','Start the selected virtual experiment',1,60,300,cw,.not.ui_busy().and.scenario_available(p_scenario),orange)
+   end if
    call home_card(3,'Results','Review recorded curves and controls',2,80+cw,300,cw,nh>0,purple)
-   call home_card(20,'qPCR scenarios','Edit parameters and explore virtual faults',3,100+2*cw,300,cw,.not.running,cyan)
-   call home_card(5,'Configure profile','Set batches, DNA design and analysis',4,60,435,cw,.not.running,purple)
-   call home_card(13,'Load files','Open a profile or native RDMLt record',5,80+cw,435,cw,.not.running,orange)
+   call home_card(20,'qPCR scenarios','Edit parameters and explore virtual faults',3,100+2*cw,300,cw,.not.ui_busy(),cyan)
+   call home_card(5,'Configure profile','Set batches, DNA design and analysis',4,60,435,cw,.not.ui_busy(),purple)
+   call home_card(13,'Load files','Open a profile or native RDMLt record',5,80+cw,435,cw,.not.ui_busy(),orange)
    call home_card(6,'References','Sources, standards, libraries and notes',6,100+2*cw,435,cw,.true.,purple)
-   if(p_scenario==0)call label('Scenario: normal run',60,655,cyan,1)
-   if(p_scenario>0)call label('Scenario: '//trim(scenario_ids(p_scenario)),60,655,cyan,1)
+   if(selection_runs()>0)then
+    call label('Selection: '//trim(integer_text(selection_runs()))//' run(s) from the qPCR scenarios page (card 03)',60,655,cyan,1)
+   else if(p_scenario==0)then
+    call label('Scenario: normal run. Tick cards on the qPCR scenarios page to queue several cases.',60,655,cyan,1)
+   else
+    call label('Scenario: '//trim(scenario_ids(p_scenario)),60,655,cyan,1)
+   end if
    if(.not.scenario_available(p_scenario))call label('Melt acquisition is unavailable. Select another scenario or Normal virtual PCR.',60,700,orange,1)
   else if(page==1)then
    call label('PCR acquisition '//trim(integer_text(shown_cycle))//' / 45 | '//trim(integer_text(nh))//' run(s) filed',60,120,ink,1)
@@ -901,7 +1229,7 @@ contains
    call button(10,0,'Temperature / Fluorescence',60,height-132,245,44,.true.)
    call button(18,0,'Reset chart',325,height-132,145,44,.true.)
    call button(3,0,'Results',490,height-132,140,44,nh>0)
-   call button(7,0,'Stop and file current run',650,height-132,245,44,running)
+   call button(7,0,'Stop and file current run',650,height-132,245,44,ui_busy())
    call button(28,0,'FAM / YY channel',915,height-132,210,44,graphmode/=1)
    if(graphmode==2)call label('YY channel',740,142,cyan,1)
    if(graphmode==0)call label('FAM channel',740,142,cyan,1)
@@ -924,7 +1252,7 @@ contains
    call button(8,0,'Previous run',60,132,150,36,selected>1)
    call button(9,0,'Next run',225,132,150,36,selected<nh)
    call label('Run '//trim(integer_text(selected))//' of '//trim(integer_text(nh)),405,143,cyan,1)
-   call button(40,0,'Download all RDMLt (ZIP)',width-600,132,280,36,nh>0.and..not.running.and.remaining==0)
+   call button(40,0,'Download all RDMLt (ZIP)',width-600,132,280,36,nh>0.and..not.ui_busy().and.remaining==0)
    call button(11,0,'Download selected RDMLt',width-300,132,260,36,selected>0)
   end if
   ptr=c_loc(pixels(1));dirty=.false.
@@ -932,7 +1260,7 @@ contains
 ! @nativefn NR2-M03-F0010
  subroutine change_field(i,d)
   integer,intent(in)::i,d
-  if(running)return
+  if(ui_busy())return
   select case(i)
   case(1)
    p_runs=max(1,min(20,p_runs+d))
@@ -960,11 +1288,11 @@ contains
   case(1)
    page=0;edit_param=0
   case(2)
-   call start_batch();if(running)page=1
+   call start_batch();if(ui_busy())page=1
   case(3)
    if(nh>0)page=2
   case(5)
-   if(.not.running)page=4
+   if(.not.ui_busy())page=4
   case(6)
    page=5;ref_page=0
   case(41)
@@ -974,7 +1302,7 @@ contains
   case(90)
    if(booted.and.boot_failed==0)page=0
   case(7)
-   if(running)call finish_run(2)
+   if(ui_busy())call finish_run(2)
   case(8)
    selected=max(1,selected-1)
   case(9)
@@ -993,7 +1321,7 @@ contains
   case(12)
    call export_profile();request=2
   case(13)
-   if(.not.running)request=1
+   if(.not.ui_busy())request=1
   case(14)
    call change_field(arg,-1)
   case(15)
@@ -1001,27 +1329,70 @@ contains
   case(18)
    zoom=1;pan=0
   case(20)
-   if(.not.running)page=6
+   if(.not.ui_busy())page=6
   case(21)
-   if(.not.running)then
-    p_scenario=arg;page=7
+   if(.not.ui_busy())then
+    p_scenario=arg;page=7;show_fault=.true.;edit_param=0;call start_preview(arg)
    end if
+  case(50)
+   if(.not.ui_busy().and.scenario_available(arg))then
+    if(sel_n(arg)>0)then
+     sel_last(arg)=sel_n(arg);sel_n(arg)=0
+    else if(selection_runs()+max(1,sel_last(arg))<=maxruns-nh)then
+     sel_n(arg)=max(1,sel_last(arg))
+    else
+     message='History capacity reached (32 runs per session).'
+    end if
+   end if
+  case(51)
+   if(.not.ui_busy().and.sel_n(arg)>0)then
+    sel_n(arg)=sel_n(arg)-1;if(sel_n(arg)>0)sel_last(arg)=sel_n(arg)
+   end if
+  case(52)
+   if(.not.ui_busy().and.scenario_available(arg))then
+    if(selection_runs()<maxruns-nh)then
+     sel_n(arg)=sel_n(arg)+1;sel_last(arg)=sel_n(arg)
+    else
+     message='History capacity reached (32 runs per session).'
+    end if
+   end if
+  case(53)
+   call start_selection();if(ui_busy())page=1
+  case(55)
+   if(selection_runs()>0)then
+    call start_selection()
+   else
+    call start_batch()
+   end if
+   if(ui_busy())page=1
+  case(54)
+   if(.not.ui_busy())sel_n=0
+  case(57)
+   if(.not.ui_busy().and.p_scenario>0)call start_preview(p_scenario)
+  case(58)
+   pv_channel=3-pv_channel
+  case(59)
+   show_fault=.not.show_fault
+  case(60)
+   show_structure=.not.show_structure
   case(22)
    catalog_page=max(0,catalog_page-1)
   case(23)
    catalog_page=min(8,catalog_page+1)
   case(24)
-   if(.not.running)call edit_parameter(p_scenario,arg,-1)
+   if(.not.ui_busy())call edit_parameter(p_scenario,arg,-1)
   case(25)
-   if(.not.running)call edit_parameter(p_scenario,arg,1)
+   if(.not.ui_busy())call edit_parameter(p_scenario,arg,1)
   case(26)
-   if(.not.running)then
+   if(.not.ui_busy())then
     p_scenario=0;page=6;message='Normal run selected. Saved fault settings retained.'
    end if
   case(27)
-   if(p_scenario>0.and..not.running)scenario_bank(:,p_scenario)=scenario_defaults(:,p_scenario)
+   if(p_scenario>0.and..not.ui_busy())then
+    scenario_bank(:,p_scenario)=scenario_defaults(:,p_scenario);call start_preview(p_scenario)
+   end if
   case(40)
-   if(nh>0.and..not.running.and.remaining==0)then
+   if(nh>0.and..not.ui_busy().and.remaining==0)then
     call export_all_runs()
     if(output_size>0)request=2
    end if
@@ -1122,7 +1493,7 @@ contains
     dirty=.true.;return
    end if
    if(value==27)page=0
-   if(value==32.and.running)call finish_run(2)
+   if(value==32.and.ui_busy())call finish_run(2)
   case(5)
    width=max(1280,min(1920,int(x)));height=max(800,min(1200,int(y)))
   case(6)
@@ -1168,8 +1539,15 @@ contains
     booted=.true.;boot_done_ms=boot_ms;dirty=.true.
    end if
   end if
+  anim_t=anim_t+max(0d0,min(200d0,ms))/1000
+  if(page==0.or.page==7)then
+   anim_acc=anim_acc+max(0d0,ms)
+   if(anim_acc>=33)then
+    anim_acc=0;dirty=.true.
+   end if
+  end if
   call tick_model(ms)
-  changed=0;if(dirty.or.was_running.or.running.or.remaining>0)changed=1
+  changed=0;if(dirty.or.was_running.or.running.or.remaining>0.or.queue_active)changed=1
  end function
 ! @nativefn NR2-M03-F0016
  integer(c_int) function native_frame_width() result(v) bind(c)
@@ -1222,7 +1600,7 @@ contains
  subroutine native_status(out) bind(c)
   integer(c_int),intent(out)::out(12)
   out=[page,nh,selected,current%ncy,current%status,0,remaining,p_ext,p_rep,p_runs,p_fault,p_copies]
-  if(running)out(6)=1
+  if(ui_busy())out(6)=1
  end subroutine
 ! @nativefn NR2-M03-F0031
 subroutine native_scenario_review(a) bind(c)

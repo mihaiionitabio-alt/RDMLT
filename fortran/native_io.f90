@@ -626,6 +626,7 @@ contains
   integer::i,j,p,namelen,extra,sz,method,flags,start,lead,record_start,record_size,entries
   integer(c_int64_t)::crc
   character(len=100)::name
+  if(preview_mode)call cancel_preview()
   if(running)then
    message='Stop generation before importing files.';return
   end if

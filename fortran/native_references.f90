@@ -2,8 +2,8 @@
 ! References page data. Generated from the project reference list (UTF-8 text as achar byte sequences).
 module native_references
  implicit none
- integer, parameter :: nref=115, ref_len=946
- integer, parameter :: ref_section(nref)=[1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,2,2,2,2,2,2,2,2,2,2,2,3,3,3,3,3]
+ integer, parameter :: nref=122, ref_len=946
+ integer, parameter :: ref_section(nref)=[1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,3,3,3,3,3,3]
  character(len=48), parameter :: section_title(3)=[character(len=48):: "Literature, standards and repositories", &
   "Software and specifications used in this edition","Edition notes and controls"]
  character(len=ref_len), parameter :: ref_text(nref)=[character(len=ref_len):: &
@@ -400,9 +400,42 @@ module native_references
   "emscripten-core (n.d.). emscripten-core/emscripten [GitHub repository]. Available at: ht" // &
    "tps://github.com/emscripten-core/emscripten (Accessed: 23 November 2026). Used for: link" // &
    "ing the WebAssembly module and its browser runtime.", &
+  "Mullins, E.A., Salay, L.E., Durie, C.L., Bradley, N.P., Jackman, J.E., Ohi, M.D., Chazin" // &
+   ", W.J. and Eichman, B.F. (2024). A mechanistic model of primer synthesis from catalytic " // &
+   "structures of DNA polymerase alpha-primase. Nature Structural & Molecular Biology, 31, 7" // &
+   "77. Available at: https://doi.org/10.1038/s41594-024-01227-4 (Accessed: 24 November 2026" // &
+   "). Used for: the rotating polymerase-DNA structure view (PDB entry 8UCU, https://doi.org" // &
+   "/10.2210/pdb8UCU/pdb, wwPDB data CC0 1.0): C-alpha trace, template, primer, incoming dGT" // &
+   "P, ddC and Mg2+ (native_structure).", &
+  "Joshi, M. (2025). ProteinDNAInterfaceAnalysis [GitHub repository]. Licence: MIT. Used fo" // &
+   "r: the DNA-contact residues of the 8UCU polymerase (Naccess .int output distributed with" // &
+   " the repository), highlighted in the structure view.", &
+  "Hoover, D.M. and Lubkowski, J. (2002). DNAWorks: an automated method for designing oligo" // &
+   "nucleotides for PCR-based gene synthesis. Nucleic Acids Research, 30(10), e43. Used for:" // &
+   " an independent check of the nearest-neighbour enthalpy table used for the example prime" // &
+   "r Tm shown in the annealing scenes (no DNAWorks code is included; DNAWorks is GPL-2.0).", &
+  "SantaLucia, J. Jr. (1998). A unified view of polymer, dumbbell, and oligonucleotide DNA " // &
+   "nearest-neighbor thermodynamics. Proceedings of the National Academy of Sciences USA, 95" // &
+   "(4), 1460-1465. Available at: https://doi.org/10.1073/pnas.95.4.1460 (Accessed: 24 Novem" // &
+   "ber 2026). Used for: nearest-neighbour duplex thermodynamics in r2_tm_nn.", &
+  "Owczarzy, R., Moreira, B.G., You, Y., Behlke, M.A. and Walder, J.A. (2008). Predicting s" // &
+   "tability of DNA duplexes in solutions containing magnesium and monovalent cations. Bioch" // &
+   "emistry, 47(19), 5336-5353. Available at: https://doi.org/10.1021/bi702363u (Accessed: 2" // &
+   "4 November 2026). Used for: the salt and magnesium correction in r2_tm_nn.", &
+  "Bio-Rad Laboratories (n.d.). iCycler iQ Real-Time PCR Detection System Instruction Manua" // &
+   "l, catalog number 170-8740 (document 4006200 Rev E). Used for: the layout of the instrum" // &
+   "ent cross-section in the scenario animations (light source, excitation filters, mirrors," // &
+   " sample plate, emission filters, intensifier and CCD detector), adapted to the simulated" // &
+   " MISSY R2 instrument.", &
   "Retained: native generic DNA probe assay, 45 cycles, 1-3 extractions and replicates; nat" // &
    "ive kinetics, thermal plant and PID controller, dual-sensor monitor, raw integer fluores" // &
    "cence; batches of 1-20 runs with seeded variation and teaching control review.", &
+  "qPCR scenarios: tick any number of cards (and the normal run) and set how many runs each" // &
+   "; Run selection files them one after another, up to the 32-run history. Opening a card s" // &
+   "hows an animation of the mechanism (instrument cross-section, molecules in the well, wel" // &
+   "ls and plate map, data path, or the 8UCU structure) and the fault curves against the nor" // &
+   "mal reference, both simulated with the full model, same seed and profile. The animations" // &
+   " illustrate the mechanism; they are not measurements.", &
   "Exports: full RDMLt packages with the MISSY R2 layout (RDML 1.3 core, RDMLt companion wi" // &
    "th SHA-256, telemetry, acquisitions, simulator record, chemistry snapshots, evaluation, " // &
    "assay detail and temperature statistics). Packages open in MISSY. Imports: this edition'" // &
