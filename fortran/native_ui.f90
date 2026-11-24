@@ -51,6 +51,7 @@ use native_audio
  real(c_double),save::anim_t=0,anim_acc=0
  integer,save::pv_channel=1
  logical,save::show_fault=.true.,show_structure=.false.,show_3d=.true.,view_mv=.false.
+ integer,save::card_page=1
  integer,save::view_k=1
  integer,save::struct_idx=1
  logical,save::pv_show_norm=.true.,pv_show_fault=.true.
@@ -184,6 +185,16 @@ contains
   character(len=220),intent(out)::l(12)
   integer::f
   f=scene_family(p_scenario);n=0;l=''
+  if(k==nviews())then
+   call add('MISSY R2 numerical model (this project): full-model simulation of the case and of the normal run; all values simulated.')
+   return
+  end if
+  if(k==4.and.f/=2)then
+   call add('Mullins, E.A., Salay, L.E., Durie, C.L., Bradley, N.P., Jackman, J.E., Ohi, M.D., Chazin, W.J. and Eichman, B.F. '// &
+    '(2024). A mechanistic model of primer synthesis from catalytic structures of DNA polymerase alpha-primase. '// &
+    'Nat. Struct. Mol. Biol., 31, 777. doi:10.1038/s41594-024-01227-4')
+   return
+  end if
   if(k==4)then
    select case(max(1,struct_idx))
    case(2)
@@ -218,9 +229,156 @@ contains
    end if
   end subroutine
  end subroutine
+! @nativefn NR2-M03-F0135
+ subroutine view_card(k,cx,cy,cw,ch)
+  ! One picture card: live preview, 2D / 3D by what it shows, a description; click: full screen.
+  integer,intent(in)::k,cx,cy,cw,ch
+  integer(c_int32_t)::c
+  call case_view(k,real(cx,c_double),real(cy,c_double),real(cw,c_double),real(ch-74,c_double),anim_t)
+  call soft_panel(cx,cy+ch-72,cw,72,8,rgba(28,18,30,255))
+  c=merge(cyan,orange,view_kind(k)=='3D')
+  call label(trim(view_kind(k)),cx+10,cy+ch-62,c,2)
+  if(cw>=380)then
+   call wrapped_px(trim(view_desc_card(k)),cx+56,cy+ch-66,cw-64,ink)
+  else
+   call wrapped_px(trim(view_short(k)),cx+56,cy+ch-60,cw-64,ink)
+  end if
+  call hotspot(97,k,cx,cy,cw,ch)
+  if(mx>=cx.and.mx<=cx+cw.and.my>=cy.and.my<=cy+ch)then
+   call card_frame(cx-4,cy-4,cw+8,ch+8,orange,3)
+  else
+   call card_frame(cx-4,cy-4,cw+8,ch+8,c,2)
+  end if
+ end subroutine
+! @nativefn NR2-M03-F0138
+ subroutine card_frame(x,y,w,h,c,t)
+  integer,intent(in)::x,y,w,h,t
+  integer(c_int32_t),intent(in)::c
+  call rectangle(x,y,w,t,c);call rectangle(x,y+h-t,w,t,c)
+  call rectangle(x,y,t,h,c);call rectangle(x+w-t,y,t,h,c)
+ end subroutine
+! @nativefn NR2-M03-F0139
+ subroutine settings_card(cx,cy,cw,ch)
+  ! The case's settings inside a card: name, editable parameters, curve channel, recompute.
+  integer,intent(in)::cx,cy,cw,ch
+  integer::i,y,row,np,rh,bh,vx
+  call soft_panel(cx,cy,cw,ch,10,rgba(24,15,23,255))
+  call card_frame(cx-4,cy-4,cw+8,ch+8,purple,2)
+  call label(trim(integer_text(p_scenario))//' | '//trim(scenario_ids(p_scenario))//' | '//trim(scenario_kinds(p_scenario))// &
+   ' | '//trim(category_name(p_scenario)),cx+14,cy+10,cyan,1)
+  call wrapped_px(trim(scenario_titles(p_scenario)),cx+14,cy+32,cw-28,orange)
+  np=count(len_trim(parameter_names(:,p_scenario))>0)
+  rh=max(34,min(54,(ch-84-104)/max(1,np)));bh=min(42,rh-6);vx=cx+cw-260
+  row=0
+  do i=1,6
+   if(len_trim(parameter_names(i,p_scenario))==0)cycle
+   y=cy+82+row*rh;row=row+1
+   call label(trim(parameter_names(i,p_scenario)),cx+14,y+2,ink,1)
+   if(rh>=50)call label(trim(real_text(scenario_min(i,p_scenario),3))//' .. '//trim(real_text(scenario_max(i,p_scenario),3)), &
+    cx+14,y+24,purple,1)
+   call button(30,i,trim(real_text(scenario_bank(i,p_scenario),3)),vx,y,130,bh,.not.ui_busy().and.scenario_step(i,p_scenario)>0)
+   if(edit_param==i)call label(trim(edit_buffer)//'_',vx+10,y+bh/2-10,cyan,1)
+   call button(24,i,'-',vx+138,y,52,bh,.not.ui_busy().and.scenario_step(i,p_scenario)>0)
+   call button(25,i,'+',vx+196,y,52,bh,.not.ui_busy().and.scenario_step(i,p_scenario)>0)
+  end do
+  if(cy+82+row*rh+30<cy+ch-126)call wrapped_px('Click a value to type; Enter applies, Escape cancels; or use - / +.', &
+   cx+14,cy+82+row*rh+10,cw-28,purple)
+  ! settings as JSON: the Fortran profile writer / parser (all 51 cases and the run profile)
+  call button(12,0,'Save settings (JSON)',cx+14,cy+ch-94,190,38,.true.)
+  call button(13,0,'Load settings (JSON)',cx+214,cy+ch-94,190,38,.not.ui_busy())
+  call button(27,0,'Defaults',cx+414,cy+ch-94,min(110,cw-428),38,.not.ui_busy())
+  if(p_scenario==21)call label('Not reproducible: needs a dye melt workflow.',cx+14,cy+ch-74,orange,1)
+  if(pv_channel==1)then
+   call button(58,0,'Curves: FAM',cx+14,cy+ch-48,150,38,.true.)
+  else
+   call button(58,0,'Curves: YY',cx+14,cy+ch-48,150,38,.true.)
+  end if
+  call button(57,0,'Recompute curves',cx+174,cy+ch-48,180,38,.not.ui_busy().and.scenario_available(p_scenario))
+ end subroutine
+! @nativefn NR2-M03-F0137
+ function view_desc_card(k) result(t)
+  ! Card text: short name and what the picture shows (the full-screen view adds the source).
+  integer,intent(in)::k
+  character(len=240)::t
+  t=trim(view_short(k))//'. '
+  select case(k)
+  case(1)
+   t=trim(t)//' The case fault, drawn and animated.'
+  case(2)
+   t=trim(t)//' Same drawing, normal run, for comparison.'
+  case(3)
+   if(scene_family(p_scenario)==2)then
+    t=trim(t)//' Atoms from the crystal structure.'
+   else
+    t=trim(t)//' Block, Peltiers, heat sink, fan, lid, optics.'
+   end if
+  case(4)
+   if(scene_family(p_scenario)==2)then
+    t=trim(t)//' Rotating atom model, fault on the enzyme.'
+   else
+    t=trim(t)//' What happens in each tube, atom by atom.'
+   end if
+  case default
+   t=trim(t)//' Fault (colours) against normal (grey dashed). Click for full size.'
+  end select
+ end function
+! @nativefn NR2-M03-F0136
+ function view_short(k) result(t)
+  integer,intent(in)::k
+  character(len=60)::t
+  select case(k)
+  case(1)
+   t='Fault drawing'
+  case(2)
+   t='Normal drawing (no fault)'
+  case(3)
+   if(scene_family(p_scenario)==2)then
+    t='Real 8UCU DNA and polymerase'
+   else
+    t='Rotating instrument cut-away'
+   end if
+  case(4)
+   if(scene_family(p_scenario)==2)then
+    t='Protein-DNA structures (PDB)'
+   else
+    t='Inside the tube: 8UCU DNA'
+   end if
+  case default
+   t='Amplification curves'
+  end select
+ end function
+! @nativefn NR2-M03-F0134
+ subroutine click_frame(x,y,w,h)
+  ! Visible frame around a clickable panel, with a hint; orange under the pointer.
+  integer,intent(in)::x,y,w,h
+  integer(c_int32_t)::c
+  integer::t
+  c=cyan;t=2
+  if(mx>=x.and.mx<=x+w.and.my>=y.and.my<=y+h)then
+   c=orange;t=3
+  end if
+  call rectangle(x-4,y-4,w+8,t,c);call rectangle(x-4,y+h+4-t,w+8,t,c)
+  call rectangle(x-4,y-4,t,h+8,c);call rectangle(x+w+4-t,y-4,t,h+8,c)
+  call soft_panel(x+w-150,y+h-30,146,26,8,rgba(24,15,23,255))
+  call label('Click: full screen',x+w-140,y+h-26,c,1)
+ end subroutine
+! @nativefn NR2-M03-F0140
+ subroutine enter_view()
+  ! 3D molecule views open with the molecule controls; other views open as animations.
+  view_mv=(view_k==3.and.scene_family(p_scenario)==2).or.(view_k==4)
+  if(view_mv)then
+   if(view_k==4.and.scene_family(p_scenario)==2)then
+    call mv_open(max(1,struct_idx))
+   else
+    call mv_open(1)
+   end if
+   mv_spin=.true.
+  end if
+ end subroutine
 ! @nativefn NR2-M03-F0127
  integer function nviews() result(n)
-  n=3;if(scene_family(p_scenario)==2)n=4
+  ! drawings (fault, normal), 3D view, [structure for molecular cases], amplification curves
+  n=5
  end function
 ! @nativefn NR2-M03-F0128
  function view_kind(k) result(t)
@@ -241,6 +399,9 @@ contains
   character(len=200)::t
   integer::f
   f=scene_family(p_scenario)
+  if(k==nviews())then
+   t='Amplification curves of this case: fault (colours) against the normal run (grey dashed)';return
+  end if
   select case(k)
   case(1)
    select case(f)
@@ -267,13 +428,28 @@ contains
     t='Rotating cut-away of the cycler: block, Peltier modules, heat sink, fan, heated lid and optics'
    end if
   case default
-   t='Rotating atom model of the protein-DNA structures (PDB), with the fault shown on the enzyme'
+   if(f==2)then
+    t='Rotating atom model of the protein-DNA structures (PDB), with the fault shown on the enzyme'
+   else
+    t='Inside the tube: real PDB 8UCU primer / template DNA and polymerase, melting, annealing and extending'
+   end if
   end select
  end function
 ! @nativefn NR2-M03-F0130
  subroutine case_view(k,x,y,w,h,t)
   integer,intent(in)::k
   real(c_double),intent(in)::x,y,w,h,t
+  if(k==nviews())then
+   call plot_preview(nint(x)+10,nint(y)+10,nint(w)-20,nint(h)-20);return
+  end if
+  if(page==12.and.k<=2.and.scene_family(p_scenario)==1)then
+   call draw_instrument_stacked(p_scenario,scenario_bank(:,p_scenario),x,y,w,h,t,k==1);return
+  end if
+  if(page==12.and.k<=2)then        ! other drawings: twice as large, still into the 4K frame
+   render_scale=4
+   call draw_fault_scene(p_scenario,scenario_bank(:,p_scenario),x/2,y/2,w/2,h/2,t,k==1)
+   render_scale=2;return
+  end if
   select case(k)
   case(1)
    call draw_fault_scene(p_scenario,scenario_bank(:,p_scenario),x,y,w,h,t,.true.)
@@ -282,7 +458,11 @@ contains
   case(3)
    call case_scene_3d(p_scenario,scene_family(p_scenario),fault_caption(p_scenario,scenario_bank(:,p_scenario)),.true.,x,y,w,h,t)
   case default
-   call draw_structure_scene(p_scenario,scenario_bank(:,p_scenario),x,y,w,h,t,.true.,struct_idx)
+   if(scene_family(p_scenario)==2)then
+    call draw_structure_scene(p_scenario,scenario_bank(:,p_scenario),x,y,w,h,t,.true.,struct_idx)
+   else
+    call case_scene_3d(0,2,'Inside the tube: PDB 8UCU',.false.,x,y,w,h,t)
+   end if
   end select
  end subroutine
 ! @nativefn NR2-M03-F0131
@@ -352,7 +532,7 @@ contains
    say=trim(mv_title())
   case(90)
    say=cue_phrase('enter')
-  case(97,99)
+  case(97,99,103,104)
    say=trim(view_kind(view_k))//' view. '//trim(view_desc(view_k))
   case(93)
    say='';if(au_on)call play_cue('affirmative')
@@ -943,59 +1123,31 @@ contains
  end function
 ! @nativefn NR2-M03-F0028
  subroutine draw_scenario()
-  integer::i,y,row,px,pw
-  row=0
+  ! Case page as cards: settings card plus the five picture cards (fault drawing, normal
+  ! drawing, 3D view, second 3D view, curves). Cards keep a minimum size; when they do not all
+  ! fit, arrows page through them. Picture cards open full screen when clicked.
+  integer::i,gx,gy,gw,gh,cols,rows,per,pages,cw,ch,k,slot,cx,cy,y
   if(p_scenario<1)return
-  px=650;pw=width-px-40
-  call label(trim(integer_text(p_scenario))//' | '//trim(scenario_ids(p_scenario))//' | '//trim(scenario_kinds(p_scenario))// &
-   ' | '//trim(category_name(p_scenario)),60,127,cyan,1)
-  call wrapped_px(trim(scenario_titles(p_scenario)),60,152,560,orange)
-  do i=1,6
-   if(len_trim(parameter_names(i,p_scenario))==0)cycle
-   y=218+row*54;row=row+1
-   call label(trim(parameter_names(i,p_scenario)),60,y+2,ink,1)
-   call label(trim(real_text(scenario_min(i,p_scenario),3))//' .. '//trim(real_text(scenario_max(i,p_scenario),3)),60,y+24,purple,1)
-   call button(30,i,trim(real_text(scenario_bank(i,p_scenario),3)),330,y,140,42,.not.ui_busy().and.scenario_step(i,p_scenario)>0)
-   if(edit_param==i)call label(trim(edit_buffer)//'_',340,y+11,cyan,1)
-   call button(24,i,'-',482,y,48,42,.not.ui_busy().and.scenario_step(i,p_scenario)>0)
-   call button(25,i,'+',540,y,48,42,.not.ui_busy().and.scenario_step(i,p_scenario)>0)
-  end do
-  y=218+row*54+6
-  call wrapped_px('Click a value to type; Enter applies, Escape cancels; or use - / +. Scope: 0 default, 1 all, '// &
-   '2 samples, 3 controls, 4 edge, 5 patch, 6 NTC + blank. Mask overrides scope.',60,y,560,ink)
-  if(p_scenario==21)call wrapped_px('Not reproducible: requires an intercalating-dye melt acquisition workflow.',60,y+70,560,orange)
-  ! animation and curves
-  if(show_3d)then
-   call case_scene_3d(p_scenario,scene_family(p_scenario),fault_caption(p_scenario,scenario_bank(:,p_scenario)),show_fault, &
-    real(px,c_double),125d0,real(pw,c_double),270d0,anim_t)
-   call button(95,0,'View: 3-D',px+pw-130,131,120,30,.true.)
-  else if(show_structure.and.scene_family(p_scenario)==2)then
-   call draw_structure_scene(p_scenario,scenario_bank(:,p_scenario),real(px,c_double),125d0,real(pw,c_double),270d0,anim_t,show_fault,struct_idx)
-   call button(61,0,'Next structure',px+pw-160,125+270-40,150,32,.true.)
-  else
-   call draw_fault_scene(p_scenario,scenario_bank(:,p_scenario),real(px,c_double),125d0,real(pw,c_double),270d0,anim_t,show_fault)
-  end if
-  if(.not.show_3d)call button(95,0,'View: 2-D',px+pw-130,131,120,30,.true.)
-  if(show_fault)then
-   call button(59,0,'Scene: fault',px,402,140,40,.true.)
-  else
-   call button(59,0,'Scene: normal',px,402,140,40,.true.)
-  end if
-  if(pv_channel==1)then
-   call button(58,0,'FAM',px+150,402,110,40,.true.)
-  else
-   call button(58,0,'YY',px+150,402,110,40,.true.)
-  end if
-  call button(57,0,'Recompute',px+270,402,125,40,.not.ui_busy().and.scenario_available(p_scenario))
-  if(scene_family(p_scenario)==2)then
-   if(show_structure)then
-    call button(60,0,'Cycle',px+500,402,pw-500,40,.true.)
+  gx=40;gy=122;gw=width-80;gh=height-122-150
+  cols=max(1,min(3,(gw+18)/(480+18)));rows=max(1,min(2,(gh+18)/(240+18)))
+  per=cols*rows;pages=(6+per-1)/per
+  card_page=max(1,min(pages,card_page))
+  cw=(gw-(cols-1)*18)/cols;ch=(gh-(rows-1)*18)/rows
+  do k=1,6
+   slot=k-(card_page-1)*per
+   if(slot<1.or.slot>per)cycle
+   cx=gx+mod(slot-1,cols)*(cw+18);cy=gy+((slot-1)/cols)*(ch+18)
+   if(k==1)then
+    call settings_card(cx,cy,cw,ch)
    else
-    call button(60,0,'Structure',px+500,402,pw-500,40,.true.)
+    call view_card(k-1,cx,cy,cw,ch)
    end if
+  end do
+  if(pages>1)then
+   call button(105,-1,'<',width-640,height-84,56,40,card_page>1)
+   call label('More cards: '//trim(integer_text(card_page))//' / '//trim(integer_text(pages)),width-570,height-72,ink,1)
+   call button(105,1,'>',width-400,height-84,56,40,card_page<pages)
   end if
-  call button(96,0,'Views',px+405,402,85,40,.true.)
-  call plot_preview(px,452,pw,height-452-150)
   y=height-130
   call button(20,0,'Back to catalogue',60,y,210,42,.true.)
   call button(27,0,'Reset this case',285,y,175,42,.not.ui_busy())
@@ -1013,6 +1165,7 @@ contains
   ! Fault (coloured by well role) against the normal reference (purple), both computed by the
   ! full thermal / chemistry / detector model with the same seed and profile.
   integer,intent(in)::x,y,w,h
+  logical::cmp
   real(c_double)::lo,hi,gx,gy,gw,gh,clip(4),v,v1,cqn,cqf
   integer::k,wl,s,nshow
   integer(c_int32_t)::c
@@ -1041,13 +1194,16 @@ contains
   else
    st='Full model, same seed and profile.'
   end if
-  call label(trim(st),x+14,y+8,cyan,1)
-  if(pv_show_norm)then
+  cmp=w<700          ! small card: axes and curves only
+  if(.not.cmp)call label(trim(st),x+14,y+8,cyan,1)
+  if(cmp)then
+  else if(pv_show_norm)then
    call button(63,0,'Normal: shown',x+w-290,y+4,140,26,.true.)
   else
    call button(63,0,'Normal: hidden',x+w-290,y+4,140,26,.true.)
   end if
-  if(pv_show_fault)then
+  if(cmp)then
+  else if(pv_show_fault)then
    call button(64,0,'Fault: shown',x+w-142,y+4,130,26,.true.)
   else
    call button(64,0,'Fault: hidden',x+w-142,y+4,130,26,.true.)
@@ -1063,11 +1219,11 @@ contains
   call aa_line(gx,gy,gx,gy+gh,purple,1d0,.false.,[0d0,0d0,1d4,1d4])
   do k=0,45,5
    call aa_line(gx+gw*(k-1)/44d0,gy+gh,gx+gw*(k-1)/44d0,gy+gh+4,purple,1d0,.false.,[0d0,0d0,1d4,1d4])
-   if(k>0)call label(trim(integer_text(k)),nint(gx+gw*(k-1)/44d0)-6,nint(gy+gh)+6,ink,1)
+   if(k>0.and.(.not.cmp.or.mod(k,10)==0))call label(trim(integer_text(k)),nint(gx+gw*(k-1)/44d0)-6,nint(gy+gh)+6,ink,1)
   end do
   call label(trim(integer_text(nint(hi))),x+6,nint(gy)-6,ink,1)
   call label(trim(integer_text(nint(lo))),x+6,nint(gy+gh)-14,ink,1)
-  call label('cycle',nint(gx+gw)-40,nint(gy+gh)+24,purple,1)
+  if(.not.cmp)call label('cycle',nint(gx+gw)-40,nint(gy+gh)+24,purple,1)
   if(have_n.and.pv_show_norm)call curves(pv_norm,.true.)
   if(pv_code==p_scenario.and.pv_state==1.and.preview_mode.and.pv_show_norm)call curves(live_curves(current),.true.)
   if(have_f.and.pv_show_fault)then
@@ -1081,7 +1237,8 @@ contains
   end if
   ! Cq summary
   s=pv_norm%ne*pv_norm%nr
-  if(have_n.and.(pv_state==3.or.pv_state==4))then
+  if(cmp)then
+  else if(have_n.and.(pv_state==3.or.pv_state==4))then
    st='Mean sample Cq  normal '//trim(cq_text(mean_cq(pv_norm,1,s)))//'  fault '//trim(cq_text(mean_cq(pv_fault,1,s)))// &
     '   PC '//trim(cq_text(cqc(pv_norm,s+1)))//' / '//trim(cq_text(cqc(pv_fault,s+1)))// &
     '   NTC '//trim(cq_text(cqc(pv_norm,s+2)))//' / '//trim(cq_text(cqc(pv_fault,s+2)))// &
@@ -1091,7 +1248,11 @@ contains
    call label('Fault run: '//trim(status_text(pv_fault%status))//'; '//trim(integer_text(pv_fault%ncy))// &
     ' cycles.   Normal = grey dashed, fault = colours.',x+14,y+h-20,orange,1)
   else
-   call label('Normal: grey dashed.  Fault: orange samples, violet PC, green NTC, cyan blank, yellow LOD',x+14,y+h-30,ink,1)
+   if(w>=720)then
+    call label('Normal: grey dashed.  Fault: orange samples, violet PC, green NTC, cyan blank, yellow LOD',x+14,y+h-30,ink,1)
+   else
+    call label('Normal grey dashed, fault in colours',x+14,y+h-30,ink,1)
+   end if
   end if
  contains
   subroutine range_of(r,ok)
@@ -1734,29 +1895,38 @@ contains
   if(page==12.and.view_mv)then
    ! molecule tools on a full-screen 3D molecule view
    call allocate_frame(width,height,rgba(10,7,13,255))
-   call mv_draw(0d0,62d0,real(width,c_double),real(height-62,c_double))
+   call view_sources(view_k,nsrc,srcs)
+   call mv_draw(0d0,62d0,real(width,c_double),real(height-62-(22*nsrc+40),c_double))
+   call soft_panel(10,height-(22*nsrc+34),width-20,22*nsrc+28,10,rgba(24,15,23,255))
+   call label('Sources',24,height-(22*nsrc+28),cyan,1)
+   do i=1,nsrc
+    call label(trim(srcs(i)),110,height-(22*nsrc+28)+22*(i-1),ink,1)
+   end do
    x0=16
    call mv_toolbar(x0,10)
    call button(102,0,'Animation',x0,10,110,42,.true.);x0=x0+115
-   call button(98,0,'Case page',x0,10,120,42,.true.)
+   call button(99,-1,'View <',x0,10,90,42,.true.);x0=x0+95
+   call button(99,1,'View >',x0,10,90,42,.true.);x0=x0+95
+   call button(1,0,'Back',x0,10,90,42,.true.)
    call draw_memory_stats()
    ptr=c_loc(pixels(1));dirty=.false.;return
   end if
   if(page==12)then
    call allocate_frame(width,height,rgba(10,7,13,255))
    call view_sources(view_k,nsrc,srcs)
+   th_zoom=.6d0                ! 3D views fill the full-screen page
    call case_view(view_k,0d0,62d0,real(width,c_double),real(height-62-(22*nsrc+40),c_double),anim_t)
+   th_zoom=1
    call soft_panel(10,height-(22*nsrc+34),width-20,22*nsrc+28,10,rgba(24,15,23,255))
    call label('Sources',24,height-(22*nsrc+28),cyan,1)
    do i=1,nsrc
     call label(trim(srcs(i)),110,height-(22*nsrc+28)+22*(i-1),ink,1)
    end do
    call label(trim(view_kind(view_k))//'   '//trim(view_desc(view_k)),24,18,orange,1)
-   if(view_k>=3.and.scene_family(p_scenario)==2)call button(102,0,'Molecule tools',width-600,10,170,42,.true.)
+   if((view_k==3.and.scene_family(p_scenario)==2).or.view_k==4)call button(102,0,'Molecule tools',width-600,10,170,42,.true.)
    call button(99,-1,'<',width-420,10,50,42,.true.)
    call button(99,1,'>',width-365,10,50,42,.true.)
    call button(1,0,'Back',width-310,10,130,42,.true.)
-   call button(98,0,'Case page',width-170,10,150,42,.true.)
    call draw_memory_stats()
    ptr=c_loc(pixels(1));dirty=.false.;return
   end if
@@ -1955,7 +2125,7 @@ contains
    case(7)
     page=6
    case(12)
-    page=11
+    page=7      ! the case page holds the view cards
    case(11)
     page=7
     if(pv_state==0.and.p_scenario>0)call start_preview(p_scenario)
@@ -2008,7 +2178,7 @@ contains
    if(.not.ui_busy())page=6
   case(21)
    if(.not.ui_busy())then
-    call cancel_preview();p_scenario=arg;page=7;show_fault=.true.;edit_param=0;call start_preview(arg)
+    call cancel_preview();p_scenario=arg;page=7;card_page=1;show_fault=.true.;edit_param=0;call start_preview(arg)
    end if
   case(50)
    if(.not.ui_busy().and.scenario_available(arg))then
@@ -2067,6 +2237,21 @@ contains
    show_3d=.not.show_3d
   case(96)
    page=11;view_mv=.false.
+  case(105)
+   card_page=card_page+arg
+  case(103)
+   view_mv=.false.;page=12
+   if(show_3d)then
+    view_k=3
+   else if(show_structure.and.scene_family(p_scenario)==2)then
+    view_k=4
+   else if(show_fault)then
+    view_k=1
+   else
+    view_k=2
+   end if
+  case(104)
+   view_mv=.false.;page=12;view_k=nviews()
   case(100)
    mv_clip=max(0d0,mv_clip-.05d0)
   case(101)
@@ -2077,12 +2262,12 @@ contains
     call mv_open(max(1,struct_idx));mv_spin=.true.
    end if
   case(97)
-   view_k=arg;page=12
+   view_k=arg;page=12;call enter_view()
   case(98)
    page=7;view_mv=.false.
    if(pv_state==0.and.p_scenario>0)call start_preview(p_scenario)
   case(99)
-   view_k=1+mod(view_k-1+arg+nviews(),nviews());page=12
+   view_k=1+mod(view_k-1+arg+nviews(),nviews());page=12;call enter_view()
   case(93)
    au_on=.not.au_on
   case(94)
@@ -2278,6 +2463,7 @@ contains
   if(page<0)return
   before=nh
   call load_file(a,n);dirty=.true.
+  if(page==7.and.p_scenario>0.and..not.ui_busy())call start_preview(p_scenario)   ! loaded settings: new curves
   if(nh>before)page=2
   if(page==7.and.p_scenario==0)page=4
  end subroutine

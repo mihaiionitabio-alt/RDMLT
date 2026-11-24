@@ -37,6 +37,7 @@ module native_theatre
  logical,save :: dna_ready=.false.
  real(c_double),save :: th_side=300
  integer,save :: th_fault=0
+ real(c_double),save,public :: th_zoom=1   ! <1 brings the 3D camera closer (full-screen views)
  ! ---- molecule viewer (home banner -> full screen)
  integer,save :: mv_si=1,mv_show=1,mv_col=1,mv_np=0,mv_pk(2)=0,mv_dsi=0
  real(c_double),save :: mv_yaw=.6d0,mv_pitch=-.25d0,mv_dist=150,mv_cut=8,mv_clip=0
@@ -393,7 +394,7 @@ contains
    call view_begin(x,y,w-th_side,h,pi-.55d0+.35d0*sin(t*.35d0),-.36d0,620d0,1.15d0)
    woff=[0d0,-95d0,0d0]
   else
-   call view_begin(x,y,w-th_side,h,yaw,-.42d0,merge(230d0,330d0,th_side<=0),1.15d0)
+   call view_begin(x,y,w-th_side,h,yaw,-.42d0,merge(230d0*th_zoom,330d0,th_side<=0),1.15d0)
    wsc=.62d0;woff=-wsc*[0d0,96d0,-70d0]
   end if
   call chassis(min(1d0,max(0d0,(mod(t,52d0)-10)/3)),mod(t,52d0)>=12,tb,tlid)
@@ -606,7 +607,7 @@ contains
   ann=0;if(tl>=10)ann=min(1d0,(tl-10)/2)
   ext=0;if(tl>=13)ext=min(1d0,(tl-13)/9)
   call panel(x,y,w,h);call box(x+1,y+1,w-2,h-2,rgba(14,10,18,255))
-  call view_begin(x,y,w-th_side,h,.5d0+t*.25d0,-.15d0,merge(140d0,95d0,tl>=13),1.0d0)
+  call view_begin(x,y,w-th_side,h,.5d0+t*.25d0,-.15d0,merge(140d0,95d0,tl>=13)*merge(th_zoom,1d0,th_side<=0),1.0d0)
   ! MD solvent particles (dNTPs) first so the DNA is drawn in front where closer
   call md_step(tc,dt)
   do i=1,nmd
@@ -658,7 +659,9 @@ contains
   end do
   px=x+w-290;call set_clip(0d0,0d0,1d4,1d4)
   if(th_side<=0)then
-   call txt(trim(stage)//'   '//trim(num(tc,1))//' C   melted '//trim(num(100*fm,0))//' %',x+10,y+h-24,c_cyan);return
+   call set_clip(x,y,x+w,y+h)               ! stay inside the card
+   call txt(trim(num(tc,0))//' C   melted '//trim(num(100*fm,0))//' %',x+10,y+h-24,c_cyan)
+   call set_clip(0d0,0d0,1d4,1d4);return
   end if
   call box(px,y+10,280d0,h-20,rgba(24,15,23,255));call frame_rect(px,y+10,280d0,h-20,c_purple,1d0)
   call txt('Primer / template DNA, PDB 8UCU',px+12,y+22,c_orange)
@@ -2159,12 +2162,13 @@ contains
    call scene_3d_instrument(x,y,w,h,12+mod(t,40d0))
   end if
   th_side=300;th_fault=0
-  call set_clip(0d0,0d0,1d4,1d4)
+  call set_clip(x,y,x+w,y+h)                 ! captions stay inside the panel
   if(fault_on.and.code>0)then
    call txt(trim(caption),x+10,y+8,c_orange)
-  else
+  else if(code>0)then
    call txt('Normal run (no fault)',x+10,y+8,c_cyan)
   end if
+  call set_clip(0d0,0d0,1d4,1d4)
   call frame_rect(x,y,w,h,c_purple,1d0)
  end subroutine
 ! @nativefn NR2-THE-F0161

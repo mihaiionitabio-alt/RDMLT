@@ -18,7 +18,7 @@ module native_anim
  use r2_oligo, only: r2_tm_nn
  implicit none
  private
- public :: anim_helix_banner, draw_fault_scene, scene_family, draw_structure_scene, draw_cycler
+ public :: anim_helix_banner, draw_fault_scene, draw_instrument_stacked, scene_family, draw_structure_scene, draw_cycler
  public :: mix, tcol, box, disc, glow, ball, seg, dash, arrow, frame_rect, txt, num, set_clip, example_tm, fault_caption
  type, public :: cycler_t
   real(c_double) :: tz(2)=25,tsens(2)=25,tlid=25,tsink=25,duty(2)=0,lidduty=0,edge=0
@@ -255,6 +255,49 @@ contains
    f=4
   end select
  end function
+! @nativefn NR2-ANI-F0033
+ subroutine tube_liquid(cx,ytop,ybot,ht,hb,depth,c)
+  ! Liquid in a conical tube: fills the cone between the walls (half-width ht at ytop, hb at
+  ! ybot, wall thickness kept clear) from the bottom up to the given depth.
+  real(c_double),intent(in)::cx,ytop,ybot,ht,hb,depth
+  integer(c_int32_t),intent(in)::c
+  real(c_double)::yy,hwid,y0,step
+  y0=max(ytop,ybot-depth);step=.5d0
+  yy=y0
+  do while(yy<ybot-1)
+   hwid=hb+(ht-hb)*(ybot-yy)/max(1d-6,ybot-ytop)-1.6d0
+   if(hwid>0)call box(cx-hwid,yy,2*hwid,step+.05d0,c)
+   yy=yy+step
+  end do
+ end subroutine
+! @nativefn NR2-ANI-F0032
+ subroutine draw_instrument_stacked(code,p,x,y,w,h,t,fault_on)
+  ! Full-screen instrument drawing: the long (front) view on top and section A-A (lateral) with
+  ! the detector strip underneath, each drawn twice as large (render scale 4 for this drawing,
+  ! still into the 4K frame). The same drawing is used twice, clipped to each half.
+  integer,intent(in)::code
+  real(c_double),intent(in)::p(6),x,y,w,h,t
+  logical,intent(in)::fault_on
+  integer::c,rs0
+  real(c_double)::hx,hy,hw,hh,ww,sx
+  c=code;if(.not.fault_on)c=0
+  cb=[x,y,x+w,y+h];call box(x,y,w,h,rgba(22,14,20,255))
+  rs0=render_scale;render_scale=2*rs0
+  hx=x/2;hy=y/2;hw=w/2;hh=h/2
+  ww=(hw-40)/.64d0                              ! front view (64 % of the drawing) fills the width, fan inside
+  cb=[hx,hy,min(hx+hw,hx+.64d0*ww+8),hy+hh/2]    ! front view only
+  call scene_instrument(c,p,hx,hy,ww,hh/2,t)
+  sx=hx-.64d0*ww+max(0d0,(hw-.36d0*ww)/2)      ! lateral part, centred below
+  cb=[max(hx,sx+.64d0*ww+6),hy+hh/2,hx+hw,hy+hh] ! only the lateral part, not the front view again
+  call scene_instrument(c,p,sx,hy+hh/2,ww,hh/2,t)
+  render_scale=rs0
+  cb=[x,y,x+w,y+h]
+  call seg(x+10,y+h/2,x+w-10,y+h/2,rgba(120,90,130,255),1d0)
+  call txt('Front view (one 8-tube strip)',x+w-260,y+8,c_cyan)
+  call txt('Section A-A (lateral view) and detector timing',x+w-380,y+h/2+8,c_cyan)
+  call frame_rect(x+.5d0,y+.5d0,w-1,h-1,c_purple,1d0)
+  cb=[0d0,0d0,1d4,1d4]
+ end subroutine
 ! @nativefn NR2-ANI-F0031
  subroutine draw_fault_scene(code,p,x,y,w,h,t,fault_on)
   ! code 0 draws the normal instrument. fault_on=.false. shows the same scene without the fault.
@@ -424,7 +467,7 @@ contains
   lw=w*.64d0;x0=x+84;pw=lw-112;wx=pw/8
   lidlift=s%lidopen*46
   yled=y+30-lidlift;yfil=yled+10;ylid=yfil+8;ycap=y+68;ytube=ycap+7
-  yblk=y+86;ypel=yblk+48;ycu=ypel+13;yfin=ycu+5;yfe=yfin+34
+  yblk=y+86;ypel=yblk+48;ycu=ypel+17;yfin=ycu+5;yfe=yfin+34   ! Peltier bars tall enough for their labels
   ! ---- heat sink, copper spreader, Peltier zones, block
   call box(x0-8,ycu,pw+16,5d0,rgba(205,120,70,255))
   call txt('Cu',x0-30,ycu-7,c_ink)
@@ -450,8 +493,8 @@ contains
    v=s%duty(k)
    c=mix(rgba(60,60,72,255),rgba(235,90,60,255),max(0d0,v))
    if(v<0)c=mix(rgba(60,60,72,255),rgba(80,150,255,255),-v)
-   call box(x0+(k-1)*pw/2+2,ypel,pw/2-4,11d0,c)
-   call txt('Peltier '//achar(48+k)//'   T'//achar(48+k)//' '//trim(num(s%tsens(k),1))//' C',x0+(k-1)*pw/2+8,ypel-1,c_bg)
+   call box(x0+(k-1)*pw/2+2,ypel,pw/2-4,15d0,c)
+   call txt('Peltier '//achar(48+k)//'   T'//achar(48+k)//' '//trim(num(s%tsens(k),1))//' C',x0+(k-1)*pw/2+8,ypel+1,c_ink)
    if(abs(v)>.05d0)then
     if(v>0)then
      call arrow(x0+(k-.5d0)*pw/2,ypel+6,x0+(k-.5d0)*pw/2,ypel-8-10*v,rgba(255,120,80,255),1.5d0)
@@ -482,7 +525,7 @@ contains
    call seg(cx-wx*.12d0,yblk+40-s%lift,cx+wx*.12d0,yblk+40-s%lift,rgba(200,200,215,255),1.5d0)
    v=s%glow(i+1)*s%led*s%seal*(1-s%misalign*i/7d0)*(.35d0+.65d0*s%reading)
    emc=mix(rgba(40,90,60,255),rgba(110,255,140,255),v)
-   call box(cx-wx*.16d0,yblk+38-s%lift-24*liq,wx*.32d0,24*liq,emc)
+   call tube_liquid(cx,ytube-s%lift,yblk+40-s%lift,wx*.3d0,wx*.12d0,26*liq,emc)
    if(v>0)call glow(cx,yblk+28-s%lift,wx*.45d0,rgba(110,255,140,255),.5d0*v)
    if(s%autofl>0)call glow(cx,ytube+6-s%lift,wx*.4d0,rgba(255,240,140,255),.3d0)
    if(s%condense>0)call disc(cx+2*sin(t+i),ycap+8+mod(t*6+i*5,10d0),2.2d0,rgba(150,210,255,255),.9d0)
@@ -528,7 +571,7 @@ contains
    call seg(cx-9,ytube-s%lift,cx-4,yblk+40-s%lift,rgba(200,200,215,255),1.5d0)
    call seg(cx+9,ytube-s%lift,cx+4,yblk+40-s%lift,rgba(200,200,215,255),1.5d0)
    v=s%reading_level*s%led*s%seal*(.35d0+.65d0*s%reading)
-   call box(cx-5,yblk+16-s%lift,10d0,22d0,mix(rgba(40,90,60,255),rgba(110,255,140,255),v))
+   call tube_liquid(cx,ytube-s%lift,yblk+40-s%lift,9d0,4d0,26d0,mix(rgba(40,90,60,255),rgba(110,255,140,255),v))
    call ball(cx+s%misalign*8,yled+5,4d0,mix(rgba(50,60,90,255),rgba(140,200,255,255),s%led*s%reading))
    if(s%reading>0.and.s%lidopen<=0)then
     call dash(cx+s%misalign*8,yled+10,cx+s%misalign*8,yblk+20,rgba(120,180,255,255),1.3d0,t*70)
