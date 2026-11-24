@@ -2,8 +2,8 @@
 ! References page data. Generated from the project reference list (UTF-8 text as achar byte sequences).
 module native_references
  implicit none
- integer, parameter :: nref=128, ref_len=946
- integer, parameter :: ref_section(nref)=[1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,3,3,3,3,3,3,3]
+ integer, parameter :: nref=150, ref_len=946
+ integer, parameter :: ref_section(nref)=[1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,3,3,3,3,3,3,3,3,3]
  character(len=48), parameter :: section_title(3)=[character(len=48):: "Literature, standards and repositories", &
   "Software and specifications used in this edition","Edition notes and controls"]
  character(len=ref_len), parameter :: ref_text(nref)=[character(len=ref_len):: &
@@ -448,9 +448,89 @@ module native_references
    "IA/TBP/TATA-box DNA complex. PDB entry 1RM1 (wwPDB data CC0 1.0). Used for: structure vi" // &
    "ew 4, TATA-binding protein and TFIIA on bent DNA, shown as a general protein-DNA teachin" // &
    "g scene.", &
+  "Yang, X., Fu, Q. and Heidrich, W. (2024). Curriculum learning for ab initio deep learned" // &
+   " refractive optics. Nature Communications, 15(1), 6572. Used for: background to the lens" // &
+   " and ray-tracing concepts in the optics animation (DeepLens project, below).", &
+  "DeepLens: differentiable optical lens simulator (Yang, Fu, Heidrich; GitHub vccimaging/D" // &
+   "eepLens). Licence: Apache-2.0. Used for: sequential ray tracing and wave-optics concepts" // &
+   " behind the optics animation; no code included.", &
+  "Kraken Optical Simulator (KrakenOS; Herrera V., J. et al., UNAM) [GitHub repository]. Li" // &
+   "cence: GPL-3.0. Used for: sequential surface-by-surface ray tracing with Snell refractio" // &
+   "n as a model for the LED-filter-cap-wall-liquid ray tracer; no code included.", &
+  "raychaser: 3-D optical simulation (wezu, 2018) [GitHub repository]. Licence: BSD-style. " // &
+   "Used for: the idea of an interactive 3-D optics bench; no code included.", &
+  "RayTran: ray tracer in pure Fortran (lewisfish) [GitHub repository], after P. Shirley, R" // &
+   "ay Tracing in One Weekend. Used for: Monte Carlo ray sampling, refraction and total inte" // &
+   "rnal reflection in the optics animation; re-implemented.", &
+  "Rodrigo, S.G. (2012). Optical Properties of Nanostructured Metallic Systems: Studied wit" // &
+   "h the Finite-Difference Time-Domain Method. Springer, Berlin. IrisFDTD-Academic [GitHub " // &
+   "repository], licence AGPL. Used for: the Yee-grid FDTD scheme of the live wave panel (re" // &
+   "-implemented, no code included).", &
+  "Yee, K.S. (1966). Numerical solution of initial boundary value problems involving Maxwel" // &
+   "l's equations in isotropic media. IEEE Transactions on Antennas and Propagation, 14(3), " // &
+   "302-307. Used for: the FDTD wave panel.", &
+  "Landskron, D. (2018). RADIATE (VieVS ray-tracer), TU Wien [GitHub TUW-VieVS/RADIATE]. Li" // &
+   "cence: GPL-3.0. Used for: reference for ray tracing through media with varying refractiv" // &
+   "e index (step-wise index map in the optics animation); no code included.", &
+  "Muller, M., Charypar, D. and Gross, M. (2003). Particle-based fluid simulation for inter" // &
+   "active applications. Proceedings of the ACM SIGGRAPH/Eurographics Symposium on Computer " // &
+   "Animation, 154-159. Used for: the poly6, spiky and viscosity kernels of the SPH fluid an" // &
+   "imation.", &
+  "Zuern, J. (2016). sph-fluidsim-fortran [GitHub jzuern/sph-fluidsim-fortran]. Used for: s" // &
+   "tructure of a Fortran SPH solver (density, pressure, viscosity, integration); re-impleme" // &
+   "nted.", &
+  "molecular-dynamics-FORTRAN [GitHub repository]. Used for: velocity-Verlet molecular dyna" // &
+   "mics, here with a Langevin thermostat for the dNTP thermal motion in the 3-D DNA animati" // &
+   "on; re-implemented.", &
+  "particleDynamics1D [GitHub repository]. Licence: GPL-3.0. Used for: particle-tracking id" // &
+   "eas in the enzyme-kinetics animation; no code included.", &
+  "Laizet, S. and Lamballais, E. (2009). High-order compact schemes for incompressible flow" // &
+   "s: a simple and efficient method with quasi-spectral accuracy. Journal of Computational " // &
+   "Physics, 228(16), 5989-6015. Incompact3d / Xcompact3d [GitHub], licence BSD-3-Clause. Us" // &
+   "ed for: finite-difference solver concepts in the live heat-equation animation (explicit " // &
+   "second-order scheme here).", &
+  "OFF: Open source Finite volume Fluid dynamics code (Fortran) [GitHub repository]. Licenc" // &
+   "e: GPL-3.0. Used for: reference for structured-grid conservation solvers; no code includ" // &
+   "ed.", &
+  "3Drendering / view: Fortran fast 3-D renderer (stewmasterj) [GitHub stewmasterj/3Drender" // &
+   "ing]. Licence: GPL-3.0. Used for: quaternion rotation of the 3-D scenes (re-implemented " // &
+   "in native_theatre).", &
+  "FortranGL and Fortran-Engine [GitHub repositories]. Used for: structure of 3-D primitive" // &
+   "s (boxes, cylinders) and a Fortran game loop; the theatre uses its own depth-buffered so" // &
+   "ftware rasteriser instead of OpenGL.", &
+  "tiny-fizics (giorgianb) and blocktran (fortran-gaming) [GitHub repositories]. Licences: " // &
+   "GPL-3.0 and Apache-2.0. Used for: fixed-step simulation and interactive frame loops; no " // &
+   "code included.", &
+  "CAMPA Consortium. Accelerator simulation codes: a community database. Available at: http" // &
+   "s://campa-consortium.github.io/accelerator_simulation_codes/ (Accessed: 24 November 2026" // &
+   "). Used for: particle tracking, particle-in-cell and transfer-matrix concepts behind the" // &
+   " particle and ray animations.", &
+  "Chai Biotechnologies Inc. Open qPCR hardware snapshot 7 (CAD assembly 001526: renders, S" // &
+   "TEP model and bill of materials; LED, photodiode, mainboard and LCD board files). Used f" // &
+   "or: the form of the 3-D instrument (wedge chassis, sloped touchscreen, raised lid housin" // &
+   "g with knob and handle) and the order of its internal assembly (2 x 8 aluminium block wi" // &
+   "th two thermistors, two Peltier modules, heat spreader, extruded heat sink, 60 mm fan, t" // &
+   "wo dual-channel optics modules with 520/24 and 585/24 band-pass filters and photodiode b" // &
+   "oards, LED board). Shapes are simplified; no CAD geometry is reproduced.", &
+  "Chai Biotechnologies Inc. chaipcr instrument software (GitHub chaibio/chaipcr, Apache-2." // &
+   "0): protocol editor and run screens. Used for: the run-page conventions in the Fortran e" // &
+   "dition (HOLDING / CYCLING stages, step temperature and hold time, gather-data marker, ST" // &
+   "AGE / STEP status, Block Temp and Lid Temp). No code included.", &
   "Retained: native generic DNA probe assay, 45 cycles, 1-3 extractions and replicates; nat" // &
    "ive kinetics, thermal plant and PID controller, dual-sensor monitor, raw integer fluores" // &
    "cence; batches of 1-20 runs with seeded variation and teaching control review.", &
+  "Run page: a protocol strip (HOLDING and CYCLING stages, step temperature and time, read " // &
+   "marker, current step highlighted) and a status line (STAGE / STEP, cycle, Block Temp, Li" // &
+   "d Temp) follow the conventions of open instrument software. Theatre labels are off by de" // &
+   "fault (Labels button).", &
+  "Animation theatre (home card 07): nine full-screen scenes drawn by the Fortran rasterise" // &
+   "r with Previous / Next (or the arrow keys): 3-D instrument with a molecular callout, 3-D" // &
+   " DNA with molecular dynamics and the 8UCU polymerase, electrical schematics with current" // &
+   " flow and oscilloscope traces, a live 2-D heat equation, optics ray tracing with spectra" // &
+   " and an FDTD wave panel, an SPH fluid in a tube, enzyme kinetics with a competitive inhi" // &
+   "bitor, a 3-D amplification surface, and a deep zoom from the tube to the polymerase acti" // &
+   "ve site. Illustrations of mechanisms; methods re-implemented, no third-party code includ" // &
+   "ed.", &
   "qPCR scenarios: tick any number of cards (and the normal run) and set how many runs each" // &
    "; Run selection files them one after another, up to the 32-run history. Opening a card s" // &
    "hows an animation of the mechanism (generic 16-tube cycler with section and detector tim" // &

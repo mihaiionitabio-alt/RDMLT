@@ -19,6 +19,7 @@ module native_anim
  implicit none
  private
  public :: anim_helix_banner, draw_fault_scene, scene_family, draw_structure_scene, draw_cycler
+ public :: mix, tcol, box, disc, glow, ball, seg, dash, arrow, frame_rect, txt, num, set_clip, example_tm
  type, public :: cycler_t
   real(c_double) :: tz(2)=25,tsens(2)=25,tlid=25,tsink=25,duty(2)=0,lidduty=0,edge=0
   real(c_double) :: led=1,glow(16)=0,liquid(16)=1,lift=0,lidopen=0,misalign=0,seal=1,autofl=0,xtalk=0
@@ -193,6 +194,11 @@ contains
   end if
   if(v<0.and.q>0)s='-'//trim(s)
  end function
+! @nativefn NR2-ANI-F0013
+ subroutine set_clip(x0,y0,x1,y1)
+  real(c_double),intent(in)::x0,y0,x1,y1
+  cb=[x0,y0,x1,y1]
+ end subroutine
 ! ------------------------------------------------------------------ home banner
 ! @nativefn NR2-ANI-F0020
  subroutine anim_helix_banner(x0,x1,ym,amp,t)

@@ -11,6 +11,7 @@ module native_ui
  use native_codec, only: sha256_hex, deflate_fixed, zlen
  use native_references
  use native_anim
+ use native_theatre
  use native_structure, only: st_n,st_kind,st_count
  use native_scenarios
  use r2_math, only: rng_uniform, rng_gauss
@@ -34,7 +35,7 @@ module native_ui
   'Hydrolysis probe and detector optics','Cq threshold analysis','Scenario identifiers, titles and kinds (51)', &
   'Scenario parameter labels and bounds','Scenario default parameter bank (51 x 6)','Native profile defaults', &
   'Run history store (32 runs)','CRC-32 lookup table','SHA-256 message digest','DEFLATE compressor (fixed Huffman, LZ77)', &
-  'ZIP and RDMLt export buffers','References and edition notes (128 entries)','Home and navigation', &
+  'ZIP and RDMLt export buffers','References and edition notes (150 entries)','Home and navigation', &
   'Virtual PCR acquisition view and charts','Results and curve selection','Scenario catalogue, animations, 4 structures', &
   'References page']
  integer,save::boot_next=1,boot_pending=0,boot_failed=0,ref_page=0
@@ -45,6 +46,9 @@ module native_ui
  logical,save::show_fault=.true.,show_structure=.false.
  integer,save::struct_idx=1
  logical,save::pv_show_norm=.true.,pv_show_fault=.true.
+ integer,save::theatre_k=1
+ real(c_double),save::theatre_t=0,theatre_dt=0
+ logical,save::theatre_pause=.false.
  integer(c_int32_t),parameter::bg=int(z'FF10090D',c_int32_t),orange=int(z'FF649BFF',c_int32_t)
  integer(c_int32_t),parameter::purple=int(z'FFC99ACB',c_int32_t),ink=int(z'FFF3E0EA',c_int32_t)
  integer(c_int32_t),parameter::panel=int(z'FF281723',c_int32_t),cyan=int(z'FFDCDC60',c_int32_t)
@@ -546,6 +550,77 @@ contains
   if(w==ss+3)c=cyan
   if(w>=ss+4)c=rgba(255,210,70,255)
  end function
+! @nativefn NR2-M03-F0114
+ function run_status_line(shown_cycle) result(s)
+  ! Run status in the wording of common instrument software: stage / step, block and lid.
+  integer,intent(in)::shown_cycle
+  character(len=160)::s
+  integer::stg,stp
+  if(ui_busy())then
+   call stage_step(phase,stg,stp)
+   if(stg<current%nhold)then
+    s='STAGE 1, STEP '//trim(integer_text(stg+1))
+   else
+    s='STAGE 2, STEP '//trim(integer_text(stp+1))
+   end if
+   s=trim(s)//' | cycle '//trim(integer_text(shown_cycle))//' / 45 | Block Temp: '//trim(real_text(.5d0*(plant(3)+plant(4)),1))// &
+    ' C | Lid Temp: '//trim(real_text(plant(5),0))//' C'
+  else
+   s='No run in progress | '//trim(integer_text(nh))//' run(s) filed | '//trim(integer_text(shown_cycle))//' / 45 cycles shown'
+  end if
+ end function
+! @nativefn NR2-M03-F0115
+ subroutine draw_protocol_strip(x,y,w,h)
+  ! Protocol overview: HOLDING and CYCLING stages, one column per step with its temperature and
+  ! hold time, the temperature profile drawn across the columns, the read (gather data) marker
+  ! and the current step highlighted.
+  integer,intent(in)::x,y,w,h
+  real(c_double)::tt(4),dd(4),cw,yl,y0,y1
+  integer::k,n,cur,stg,stp
+  character(len=16)::tm
+  n=2
+  if(p_prog==1)then
+   tt=[50d0,95d0,95d0,60d0];dd=[120d0,600d0,15d0,60d0];n=4
+  else
+   tt=[95d0,95d0,60d0,0d0];dd=[120d0,10d0,30d0,0d0];n=3
+  end if
+  if(ui_busy())then
+   tt(n)=current%ann_t
+  end if
+  cur=0
+  if(ui_busy())then
+   call stage_step(phase,stg,stp)
+   if(stg<current%nhold)then
+    cur=stg+1
+   else
+    cur=current%nhold+1+stp
+   end if
+  end if
+  cw=real(w,c_double)/n
+  call soft_panel(x,y,w,h,8,panel)
+  do k=1,n
+   if(k==cur)call rectangle(nint(x+(k-1)*cw)+2,y+2,nint(cw)-4,h-4,rgba(70,45,60,255))
+   if(k>1)call rectangle(nint(x+(k-1)*cw),y+16,1,h-18,purple)
+  end do
+  call label('HOLDING',x+8,y+2,purple,1)
+  call label('CYCLING x45',nint(x+(n-2)*cw)+8,y+2,orange,1)
+  do k=1,n
+   yl=y+h-24-(tt(k)-40)/60*(h-46)
+   call aa_line(x+(k-1)*cw+6,yl,x+k*cw-6,yl,cyan,2d0,.false.,[0d0,0d0,1d4,1d4])
+   if(k<n)then
+    y1=y+h-24-(tt(k+1)-40)/60*(h-46)
+    call aa_line(x+k*cw-6,yl,x+k*cw+6,y1,cyan,1.4d0,.false.,[0d0,0d0,1d4,1d4])
+   end if
+   write(tm,'(i0,a,i2.2)')int(dd(k))/60,':',mod(int(dd(k)),60)
+   call label(trim(real_text(tt(k),1))//' C  '//trim(tm),nint(x+(k-1)*cw)+8,y+h-20,ink,1)
+  end do
+  call disc_mark(nint(x+n*cw)-14,y+12)
+ contains
+  subroutine disc_mark(px,py)
+   integer,intent(in)::px,py
+   call soft_panel(px-7,py-7,14,14,7,orange)
+  end subroutine
+ end subroutine
 ! @nativefn NR2-M03-F0112
  function clock_text(sec,hours) result(s)
   real(c_double),intent(in)::sec
@@ -1315,6 +1390,26 @@ contains
    call allocate_frame(width,height,bg);call draw_boot()
    ptr=c_loc(pixels(1));dirty=.false.;return
   end if
+  if(page==9)then
+   call allocate_frame(width,height,rgba(10,7,12,255))
+   call label('Animation theatre  '//trim(integer_text(theatre_k))//' / '//trim(integer_text(nscene)),24,14,orange,2)
+   call label(trim(theatre_title(theatre_k)),24,52,ink,1)
+   if(show_tags)then
+    call button(75,0,'Labels: on',width-790,16,160,42,.true.)
+   else
+    call button(75,0,'Labels: off',width-790,16,160,42,.true.)
+   end if
+   call button(70,0,'Previous',width-620,16,130,42,.true.)
+   if(theatre_pause)then
+    call button(72,0,'Play',width-480,16,110,42,.true.)
+   else
+    call button(72,0,'Pause',width-480,16,110,42,.true.)
+   end if
+   call button(71,0,'Next',width-360,16,130,42,.true.)
+   call button(74,0,'Home',width-220,16,190,42,.true.)
+   call draw_theatre_scene(theatre_k,16d0,78d0,real(width-32,c_double),real(height-90,c_double),theatre_t,theatre_dt)
+   ptr=c_loc(pixels(1));dirty=.false.;return
+  end if
   shown_cycle=current%ncy
   if(.not.ui_busy().and.selected>0)shown_cycle=history(selected)%ncy
   if(page==1.and.graphmode==3)then
@@ -1352,18 +1447,21 @@ contains
    call home_card(5,'Configure profile','Set batches, DNA design and analysis',4,60,435,cw,.not.ui_busy(),purple)
    call home_card(13,'Load files','Open a profile or native RDMLt record',5,80+cw,435,cw,.not.ui_busy(),orange)
    call home_card(6,'References','Sources, standards, libraries and notes',6,100+2*cw,435,cw,.true.,purple)
+   call home_card(73,'Animation theatre','Eight full-screen scenes: 3-D instrument, DNA, circuits, heat, optics, fluid, '// &
+    'enzymes, amplification surface',7,60,570,3*cw+40,.true.,orange)
    if(selection_runs()>0)then
-    call label('Selection: '//trim(integer_text(selection_runs()))//' run(s) from the qPCR scenarios page (card 03)',60,655,cyan,1)
+    call label('Selection: '//trim(integer_text(selection_runs()))//' run(s) from the qPCR scenarios page (card 03)',60,700,cyan,1)
    else if(p_scenario==0)then
-    call label('Scenario: normal run. Tick cards on the qPCR scenarios page to queue several cases.',60,655,cyan,1)
+    call label('Scenario: normal run. Tick cards on the qPCR scenarios page to queue several cases.',60,700,cyan,1)
    else
-    call label('Scenario: '//trim(scenario_ids(p_scenario)),60,655,cyan,1)
+    call label('Scenario: '//trim(scenario_ids(p_scenario)),60,700,cyan,1)
    end if
-   if(.not.scenario_available(p_scenario))call label('Melt acquisition is unavailable. Select another scenario or Normal virtual PCR.',60,700,orange,1)
+   if(.not.scenario_available(p_scenario))call label('Melt acquisition is unavailable. Select another scenario or Normal virtual PCR.',60,735,orange,1)
   else if(page==1)then
    if(graphmode==3)call draw_live()
-   call label('PCR acquisition '//trim(integer_text(shown_cycle))//' / 45 | '//trim(integer_text(nh))//' run(s) filed',60,120,ink,1)
-   call label(trim(time_line()),560,120,cyan,1)
+   call draw_protocol_strip(560,20,500,84)
+   call label(trim(run_status_line(shown_cycle)),60,120,ink,1)
+   call label(trim(time_line()),720,120,cyan,1)
    if(graphmode==0.or.graphmode==2)then
     call label('Sample',80,142,orange,1);call label('Positive control',190,142,purple,1)
     call label('NTC',370,142,rgba(75,220,135,255),1);call label('Blank',450,142,cyan,1)
@@ -1526,6 +1624,18 @@ contains
    show_fault=.not.show_fault
   case(60)
    show_structure=.not.show_structure
+  case(73)
+   page=9;theatre_t=0
+  case(70)
+   theatre_k=1+mod(theatre_k-2+nscene,nscene);theatre_t=0;call theatre_reset()
+  case(71)
+   theatre_k=1+mod(theatre_k,nscene);theatre_t=0;call theatre_reset()
+  case(72)
+   theatre_pause=.not.theatre_pause
+  case(74)
+   page=0
+  case(75)
+   show_tags=.not.show_tags
   case(63)
    pv_show_norm=.not.pv_show_norm
   case(64)
@@ -1655,6 +1765,8 @@ contains
     end if
     dirty=.true.;return
    end if
+   if(page==9.and.value==37)call action(70,0)
+   if(page==9.and.value==39)call action(71,0)
    if(value==27)page=0
    if(value==32.and.ui_busy())call finish_run(2)
   case(5)
@@ -1703,7 +1815,11 @@ contains
    end if
   end if
   anim_t=anim_t+max(0d0,min(200d0,ms))/1000
-  if(page==0.or.page==7.or.(page==1.and.graphmode==3))then
+  theatre_dt=0
+  if(page==9.and..not.theatre_pause)then
+   theatre_dt=max(0d0,min(100d0,ms))/1000;theatre_t=theatre_t+theatre_dt
+  end if
+  if(page==0.or.page==7.or.page==9.or.(page==1.and.graphmode==3))then
    anim_acc=anim_acc+max(0d0,ms)
    if(anim_acc>=33)then
     anim_acc=0;dirty=.true.
