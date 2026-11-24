@@ -2,8 +2,8 @@
 ! References page data. Generated from the project reference list (UTF-8 text as achar byte sequences).
 module native_references
  implicit none
- integer, parameter :: nref=151, ref_len=946
- integer, parameter :: ref_section(nref)=[1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,3,3,3,3,3,3,3,3,3,3]
+ integer, parameter :: nref=152, ref_len=946
+ integer, parameter :: ref_section(nref)=[1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,3,3,3,3,3,3,3,3,3,3,3]
  character(len=48), parameter :: section_title(3)=[character(len=48):: "Literature, standards and repositories", &
   "Software and specifications used in this edition","Edition notes and controls"]
  character(len=ref_len), parameter :: ref_text(nref)=[character(len=ref_len):: &
@@ -531,6 +531,17 @@ module native_references
    "he bottom right of every page shows memory: the application heap (Emscripten runtime) an" // &
    "d, where the browser exposes them, the JavaScript heap and the device memory estimate (n" // &
    "avigator.deviceMemory, rounded by the browser).", &
+  "Start-up, viewer and sound: the website first plays theatre scene 2 full screen with a l" // &
+   "oading bar while the data are prepared, then the 25 Fortran components load and the MISS" // &
+   "Y logo enters. Clicking a molecule on the home page opens a full-screen viewer (drag to " // &
+   "rotate, wheel to zoom, click two atoms for their distance; composition, radius of gyrati" // &
+   "on, Naccess interface residues and C-alpha contacts within an adjustable cut-off, after " // &
+   "the ProteinDNAInterfaceAnalysis approach). All 507 MISSY R2 interface sound cues are emb" // &
+   "edded (synthesis tables and the two sampled cues as PCM bytes); Fortran renders each cue" // &
+   " to a WAV byte array that the browser plays from a temporary file. Selections are spoken" // &
+   ", and a running virtual PCR is narrated (cycle, block temperature, mean signal, amplific" // &
+   "ation, result) with the browser speech synthesis; Sounds and Voice switches are on every" // &
+   " page header.", &
   "Animation theatre (home card 07): nine full-screen scenes drawn by the Fortran rasterise" // &
    "r with Previous / Next (or the arrow keys): 3-D instrument with a molecular callout, 3-D" // &
    " DNA with molecular dynamics and the real 8UCU template / primer atoms and polymerase, e" // &

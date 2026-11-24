@@ -20,7 +20,7 @@ def main():
     parser.add_argument("--wasm", action="store_true")
     options = parser.parse_args()
     BUILD.mkdir(parents=True, exist_ok=True)
-    files = [SRC / ("r2_" + name + ".f90") for name in ORDER] + [SRC / (name + ".f90") for name in ["json_fortran_browser_strings","stdlib_browser_stats","native_scenarios","native_model","native_codec","native_io","native_rdmlt","native_references","native_structure","native_anim","native_theatre","native_sys_SYSVARIANT","native_ui"]]
+    files = [SRC / ("r2_" + name + ".f90") for name in ORDER] + [SRC / (name + ".f90") for name in ["json_fortran_browser_strings","stdlib_browser_stats","native_scenarios","native_model","native_codec","native_io","native_rdmlt","native_references","native_structure","native_anim","native_theatre","native_sys_SYSVARIANT","native_audio_data","native_audio","native_ui"]]
     # native_sys has two variants: the browser one calls the Emscripten runtime, the gfortran
     # test build gets a stub with the same interface.
     def variant(v):

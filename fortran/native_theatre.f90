@@ -18,7 +18,9 @@ module native_theatre
  use native_structure
  implicit none
  private
- public :: nscene, theatre_title, draw_theatre_scene, theatre_reset, show_tags, theatre_warm, molecule_banner, molecule_icon, molecule_stage
+ public :: nscene, theatre_title, draw_theatre_scene, theatre_reset, show_tags, theatre_warm, molecule_banner, molecule_icon, molecule_stage, &
+  mv_si, mv_yaw, mv_pitch, mv_dist, mv_show, mv_col, mv_spin, mv_cut, mv_open, mv_draw, mv_pick, mv_clear, mv_tick, &
+  mv_show_name, mv_col_name
  logical,save :: show_tags=.false.
  integer,parameter :: nscene=9
  real(c_double),parameter :: pi=3.141592653589793d0
@@ -33,6 +35,12 @@ module native_theatre
  ! ---- simulation states
  logical,save :: md_init=.false.,sph_init=.false.,heat_init=.false.,enz_init=.false.,opt_init=.false.
  logical,save :: dna_ready=.false.
+ ! ---- molecule viewer (home banner -> full screen)
+ integer,save :: mv_si=1,mv_show=1,mv_col=1,mv_np=0,mv_pk(2)=0,mv_dsi=0
+ real(c_double),save :: mv_yaw=.6d0,mv_pitch=-.25d0,mv_dist=150,mv_cut=8
+ logical,save :: mv_spin=.true.
+ real(c_double),allocatable,save :: mv_sx(:),mv_sy(:),mv_sz(:),mv_dna(:)
+ real(c_double),save :: mv_g(3)=0,mv_rg=0,mv_rmax=0
  real(c_double),save :: dna_c(3)=0,dna_dir(3)=0,dna_perp(3)=0
  integer,parameter :: nmd=110
  real(c_double),save :: mdx(3,nmd),mdv(3,nmd),mdf(3,nmd)
@@ -1840,6 +1848,272 @@ contains
   call view_begin(x,y,w,h,t*.25d0,-.22d0,dd,1.0d0)
   call draw_molecule(1,-tg,1d0,[1d0,0d0,0d0,0d0],.false.,.35d0)
   call set_clip(0d0,0d0,1d4,1d4)
+ end subroutine
+! ======================================================================= molecule viewer
+! Full-screen viewer for the four PDB structures (home banner). Drag to rotate, wheel or the
+! buttons to zoom, click two atoms to measure their distance. Analyses follow the protein-DNA
+! interface approach of ProteinDNAInterfaceAnalysis (M. Joshi, MIT): Naccess interface
+! residues from its output, plus contacts counted here as protein C-alpha atoms within a
+! distance cut-off of any nucleic-acid atom, radius of gyration and composition.
+! @nativefn NR2-THE-F0150
+ subroutine mv_open(si)
+  integer,intent(in)::si
+  mv_si=max(1,min(st_count,si));mv_np=0;mv_pk=0
+  call mv_prepare()
+  mv_dist=mv_rmax*2.0d0;mv_yaw=.6d0;mv_pitch=-.25d0
+ end subroutine
+! @nativefn NR2-THE-F0151
+ subroutine mv_prepare()
+  ! Centre, radius of gyration, largest radius and, for every protein atom, the distance to
+  ! the nearest nucleic-acid atom (angstrom).
+  integer::i,j,n
+  real(c_double)::d,q(3)
+  if(mv_dsi==mv_si)return
+  if(.not.allocated(mv_sx))allocate(mv_sx(st_n),mv_sy(st_n),mv_sz(st_n),mv_dna(st_n))
+  mv_g=0;n=0
+  do i=st_first(mv_si),st_last(mv_si)
+   mv_g=mv_g+st_xyz(:,i)/10d0;n=n+1
+  end do
+  mv_g=mv_g/max(1,n);mv_rg=0;mv_rmax=0
+  do i=st_first(mv_si),st_last(mv_si)
+   d=sum((st_xyz(:,i)/10d0-mv_g)**2);mv_rg=mv_rg+d;mv_rmax=max(mv_rmax,sqrt(d))
+  end do
+  mv_rg=sqrt(mv_rg/max(1,n))
+  do i=st_first(mv_si),st_last(mv_si)
+   mv_dna(i)=1d9
+   if(.not.is_prot(st_kind(i)))cycle
+   q=st_xyz(:,i)/10d0
+   do j=st_first(mv_si),st_last(mv_si)
+    if(st_kind(j)/=3.and.st_kind(j)/=4)cycle
+    d=sum((st_xyz(:,j)/10d0-q)**2)
+    if(d<mv_dna(i))mv_dna(i)=d
+   end do
+   mv_dna(i)=sqrt(mv_dna(i))
+  end do
+  mv_dsi=mv_si
+ end subroutine
+! @nativefn NR2-THE-F0152
+ logical function is_prot(k)
+  integer,intent(in)::k
+  is_prot=k==1.or.k==2.or.k==8.or.k==9
+ end function
+! @nativefn NR2-THE-F0153
+ subroutine mv_tick(dt)
+  real(c_double),intent(in)::dt
+  if(mv_spin)mv_yaw=mv_yaw+.25d0*dt
+ end subroutine
+! @nativefn NR2-THE-F0154
+ function mv_show_name() result(t)
+  character(len=24)::t
+  select case(mv_show)
+  case(2)
+   t='Show: protein'
+  case(3)
+   t='Show: DNA + ligands'
+  case(4)
+   t='Show: interface'
+  case default
+   t='Show: all'
+  end select
+ end function
+! @nativefn NR2-THE-F0155
+ function mv_col_name() result(t)
+  character(len=24)::t
+  select case(mv_col)
+  case(2)
+   t='Colour: chain order'
+  case(3)
+   t='Colour: DNA distance'
+  case(4)
+   t='Colour: contacts'
+  case default
+   t='Colour: components'
+  end select
+ end function
+! @nativefn NR2-THE-F0156
+ subroutine mv_draw(x,y,w,h)
+  real(c_double),intent(in)::x,y,w,h
+  character(len=4),parameter::ids(4)=['8UCU','1RFF','1A3Q','1RM1']
+  character(len=72),parameter::names(4)=[character(len=72):: &
+   'DNA polymerase alpha, primer / template DNA', &
+   'Tyrosyl-DNA phosphodiesterase 1 with DNA', &
+   'NF-kappaB p52 homodimer bound to DNA', &
+   'TBP / TFIIA on TATA-box DNA']
+  integer::i,k,n(9),ncon,nif,yy,j
+  real(c_double)::p(3),r,sx,sy,d,px,f
+  integer(c_int32_t)::col
+  logical::shown
+  call mv_prepare()
+  call box(x,y,w,h,rgba(10,7,13,255))
+  call view_begin(x,y,w-330,h,mv_yaw,mv_pitch,mv_dist,1.0d0)
+  n=0;ncon=0;nif=0
+  do i=st_first(mv_si),st_last(mv_si)
+   k=st_kind(i);n(k)=n(k)+1
+   if(is_prot(k).and.mv_dna(i)<=mv_cut)ncon=ncon+1
+   if(k==2)nif=nif+1
+   mv_sz(i)=-1
+   select case(mv_show)
+   case(2)
+    shown=is_prot(k)
+   case(3)
+    shown=.not.is_prot(k)
+   case(4)
+    shown=.not.is_prot(k).or.mv_dna(i)<=mv_cut.or.k==2
+   case default
+    shown=.true.
+   end select
+   if(.not.shown)cycle
+   if(is_prot(k))then
+    r=1.9d0
+   else if(k==7)then
+    r=1.6d0
+   else
+    r=1.15d0
+   end if
+   col=comp_col(i,k)
+   f=real(i-st_first(mv_si),c_double)/max(1,st_last(mv_si)-st_first(mv_si))
+   select case(mv_col)
+   case(2)
+    if(is_prot(k))col=rainbow(f)
+   case(3)
+    if(is_prot(k))col=mix(rgba(255,90,70,255),rgba(70,110,230,255),min(1d0,max(0d0,(mv_dna(i)-4)/26)))
+    if(.not.is_prot(k))col=rgba(235,235,240,255)
+   case(4)
+    if(is_prot(k))then
+     col=rgba(95,90,110,255);if(mv_dna(i)<=mv_cut)col=c_orange
+    end if
+   end select
+   if(any(mv_pk(1:mv_np)==i))col=rgba(255,255,120,255)
+   p=st_xyz(:,i)/10d0-mv_g
+   call zsphere(p,r,col)
+   call screen_of(p,sx,sy);mv_sx(i)=sx;mv_sy(i)=sy
+   call to_depth(p,mv_sz(i))
+  end do
+  if(mv_np==2)call zline(st_xyz(:,mv_pk(1))/10d0-mv_g,st_xyz(:,mv_pk(2))/10d0-mv_g,rgba(255,255,120,255),1.6d0)
+  call set_clip(0d0,0d0,1d4,1d4)
+  ! analysis panel
+  px=x+w-320
+  call box(px,y+8,312d0,h-16,rgba(24,15,23,255));call frame_rect(px,y+8,312d0,h-16,c_purple,1d0)
+  call txt('PDB '//ids(mv_si),px+12,y+20,c_orange)
+  call txt(trim(names(mv_si)),px+12,y+44,c_ink)
+  yy=nint(y)+80
+  call txt('Composition (atoms shown as spheres)',px+12,yy*1d0,c_cyan);yy=yy+24
+  call txt('protein C-alpha  '//trim(inum(n(1)+n(2)+n(8)+n(9))),px+12,yy*1d0,c_ink);yy=yy+20
+  call txt('nucleic-acid atoms '//trim(inum(n(3)+n(4))),px+12,yy*1d0,c_ink);yy=yy+20
+  if(n(5)+n(6)+n(7)>0)then
+   call txt('ligand / ion atoms '//trim(inum(n(5)+n(6)+n(7))),px+12,yy*1d0,c_ink);yy=yy+20
+  end if
+  yy=yy+10
+  call txt('Shape',px+12,yy*1d0,c_cyan);yy=yy+24
+  call txt('radius of gyration '//trim(num(mv_rg,1))//' A',px+12,yy*1d0,c_ink);yy=yy+20
+  call txt('largest radius     '//trim(num(mv_rmax,1))//' A',px+12,yy*1d0,c_ink);yy=yy+30
+  call txt('Protein-DNA interface',px+12,yy*1d0,c_cyan);yy=yy+24
+  call txt('Naccess interface residues '//trim(inum(nif)),px+12,yy*1d0,c_ink);yy=yy+20
+  call txt('C-alpha within '//trim(num(mv_cut,0))//' A of DNA: '//trim(inum(ncon)),px+12,yy*1d0,c_ink);yy=yy+20
+  call txt('(cut-off with - / + buttons)',px+12,yy*1d0,c_purple);yy=yy+30
+  call txt('Measure',px+12,yy*1d0,c_cyan);yy=yy+24
+  if(mv_np==0)then
+   call txt('Click an atom to select it.',px+12,yy*1d0,c_ink);yy=yy+20
+  end if
+  do j=1,mv_np
+   call txt(trim(atom_name(mv_pk(j))),px+12,yy*1d0,rgba(255,255,120,255));yy=yy+20
+  end do
+  if(mv_np==2)then
+   d=sqrt(sum((real(st_xyz(:,mv_pk(1)),c_double)-st_xyz(:,mv_pk(2)))**2))/10d0
+   call txt('distance '//trim(num(d,1))//' A',px+12,yy*1d0,c_orange);yy=yy+20
+  else if(mv_np==1)then
+   if(is_prot(st_kind(mv_pk(1))))call txt('nearest DNA atom '//trim(num(mv_dna(mv_pk(1)),1))//' A',px+12,yy*1d0,c_ink)
+   yy=yy+20
+  end if
+  call txt('Drag: rotate   Wheel: zoom',px+12,y+h-124,c_purple)
+  call txt('Click: select atom (two = distance)',px+12,y+h-104,c_purple)
+  call txt('wwPDB data, CC0 1.0',px+12,y+h-84,c_purple)
+ contains
+  function inum(m) result(t)
+   integer,intent(in)::m
+   character(len=12)::t
+   write(t,'(i0)')m
+  end function
+  function atom_name(i) result(t)
+   integer,intent(in)::i
+   character(len=60)::t
+   select case(st_kind(i))
+   case(1,2,8,9)
+    t='protein C-alpha #'//trim(inum(i-st_first(mv_si)+1))
+    if(st_kind(i)==2)t=trim(t)//' (interface)'
+   case(3)
+    t='DNA strand 1 atom #'//trim(inum(i-st_first(mv_si)+1))
+   case(4)
+    t='DNA strand 2 atom #'//trim(inum(i-st_first(mv_si)+1))
+   case(5)
+    t='dGTP atom'
+   case(6)
+    t='ddC / vanadate atom'
+   case default
+    t='Mg2+ ion'
+   end select
+  end function
+  integer(c_int32_t) function rainbow(f)
+   real(c_double),intent(in)::f
+   if(f<.5d0)then
+    rainbow=mix(rgba(70,110,230,255),rgba(80,210,120,255),f*2)
+   else
+    rainbow=mix(rgba(80,210,120,255),rgba(255,90,70,255),f*2-1)
+   end if
+  end function
+  integer(c_int32_t) function comp_col(i,k)
+   integer,intent(in)::i,k
+   select case(k)
+   case(1)
+    comp_col=mix(rgba(150,110,200,255),rgba(90,150,255,255),real(i-st_first(mv_si),c_double)/max(1,st_last(mv_si)-st_first(mv_si)))
+   case(2)
+    comp_col=c_orange
+   case(3)
+    comp_col=c_cyan
+   case(4)
+    comp_col=rgba(255,150,200,255)
+   case(5)
+    comp_col=c_green
+   case(6)
+    comp_col=c_yellow
+   case(8)
+    comp_col=rgba(90,190,150,255)
+   case(9)
+    comp_col=rgba(235,235,240,255)
+   case default
+    comp_col=rgba(255,80,255,255)
+   end select
+  end function
+ end subroutine
+! @nativefn NR2-THE-F0157
+ subroutine to_depth(p,z)
+  real(c_double),intent(in)::p(3)
+  real(c_double),intent(out)::z
+  real(c_double)::c(3)
+  call to_cam(p,c);z=c(3)
+ end subroutine
+! @nativefn NR2-THE-F0158
+ subroutine mv_pick(x,y)
+  ! Nearest drawn atom to the pointer (within 9 px, front-most wins); two picks give a distance.
+  real(c_double),intent(in)::x,y
+  integer::i,best
+  real(c_double)::bz,d
+  if(.not.allocated(mv_sx))return
+  best=0;bz=1d30
+  do i=st_first(mv_si),st_last(mv_si)
+   if(mv_sz(i)<=0)cycle
+   d=(mv_sx(i)-x)**2+(mv_sy(i)-y)**2
+   if(d<81.and.mv_sz(i)<bz)then
+    bz=mv_sz(i);best=i
+   end if
+  end do
+  if(best==0)return
+  if(mv_np>=2)mv_np=0
+  mv_np=mv_np+1;mv_pk(mv_np)=best
+ end subroutine
+! @nativefn NR2-THE-F0159
+ subroutine mv_clear()
+  mv_np=0;mv_pk=0
  end subroutine
 ! @nativefn NR2-THE-F0134
  subroutine theatre_warm()

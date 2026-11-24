@@ -6,7 +6,7 @@ module native_sys
  use iso_c_binding
  implicit none
  private
- public :: sys_sample, sys_heap_mb, sys_js_used_mb, sys_js_limit_mb, sys_device_mb, sys_native
+ public :: sys_sample, sys_heap_mb, sys_js_used_mb, sys_js_limit_mb, sys_device_mb, sys_native, sys_script, sys_script_int
  logical,parameter :: sys_native=.false.
  integer,save :: sys_heap_mb=-1,sys_js_used_mb=-1,sys_js_limit_mb=-1,sys_device_mb=-1
  interface
@@ -14,6 +14,10 @@ module native_sys
    import :: c_size_t
    integer(c_size_t) :: n
   end function
+  subroutine emscripten_run_script(script) bind(c,name='emscripten_run_script')
+   import :: c_char
+   character(kind=c_char),dimension(*),intent(in) :: script
+  end subroutine
   function emscripten_run_script_int(script) bind(c,name='emscripten_run_script_int') result(n)
    import :: c_char,c_int
    character(kind=c_char),dimension(*),intent(in) :: script
@@ -21,6 +25,17 @@ module native_sys
   end function
  end interface
 contains
+! @nativefn NR2-SYS-F0002
+ subroutine sys_script(js)
+  ! Runs a short browser expression (audio playback, speech) written in this Fortran source.
+  character(len=*),intent(in)::js
+  call emscripten_run_script(js//c_null_char)
+ end subroutine
+! @nativefn NR2-SYS-F0003
+ integer function sys_script_int(js) result(v)
+  character(len=*),intent(in)::js
+  v=emscripten_run_script_int(js//c_null_char)
+ end function
 ! @nativefn NR2-SYS-F0001
  subroutine sys_sample()
   integer(c_size_t)::h
