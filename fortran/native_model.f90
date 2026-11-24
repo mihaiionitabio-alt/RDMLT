@@ -286,6 +286,8 @@ contains
   if(r%scenario==37.and.nint(r%params(1))/=0)return
   if(r%cq(s+1)<=0.or.r%cq(s+2)>0.or.r%cq(s+3)>0)return
   if(r%cq(s+4)<=0.and.r%cq(s+5)<=0)return
+  ! endogenous gene: detected in the positive control, absent from NTC and extraction blank
+  if(r%cq2(s+1)<=0.or.r%cq2(s+2)>0.or.r%cq2(s+3)>0)return
   v=1
   if(r%scenario/=0)v=4
  end function
@@ -326,7 +328,11 @@ contains
    if(w==s+1)assay(2,w)=10000
    if(w==s+2.or.w==s+3)assay(2,w)=0
    if(w>=s+4)assay(2,w)=15
+   ! Channel 2 = endogenous (reference) gene. Every reaction holding plant DNA carries it:
+   ! 200 ng template / 2.725 pg per haploid maize genome = about 73 000 copies (samples, CRM
+   ! positive control, LOD controls diluted in non-GM DNA); NTC and extraction blank carry none.
    assay2(:,w)=assay(:,w);assay2(2,w)=0
+   if(w<=s+1.or.w>=s+4)assay2(2,w)=73000
    if(p_scenario==48.or.p_scenario==49.or.p_scenario==51)then
     if(w<=s.or.w==s+1)assay2(2,w)=10000
    end if

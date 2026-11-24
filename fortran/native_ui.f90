@@ -322,9 +322,9 @@ contains
   call button(27,0,'Defaults',cx+414,cy+ch-94,min(110,cw-428),38,.not.ui_busy())
   if(p_scenario==21)call label('Not reproducible: needs a dye melt workflow.',cx+14,cy+ch-74,orange,1)
   if(pv_channel==1)then
-   call button(58,0,'Curves: FAM',cx+14,cy+ch-48,150,38,.true.)
+   call button(58,0,'Curves: target',cx+14,cy+ch-48,150,38,.true.)
   else
-   call button(58,0,'Curves: YY',cx+14,cy+ch-48,150,38,.true.)
+   call button(58,0,'Curves: endogene',cx+14,cy+ch-48,150,38,.true.)
   end if
   call button(57,0,'Recompute curves',cx+174,cy+ch-48,180,38,.not.ui_busy().and.scenario_available(p_scenario))
  end subroutine
@@ -799,21 +799,12 @@ contains
  function result_name(r,w)result(name)
   type(run_t),intent(in)::r
   integer,intent(in)::w
-  character(len=50)::name
+  character(len=52)::name
   integer::s,e,rep
-  s=r%ne*r%nr
-  if(w<=s)then
-   e=(w-1)/r%nr+1;rep=mod(w-1,r%nr)+1
-   name='Sample 1 / E'//trim(integer_text(e))//' / R'//trim(integer_text(rep))
-  else if(w==s+1)then
-   name='Positive control'
-  else if(w==s+2)then
-   name='NTC'
-  else if(w==s+3)then
-   name='Extraction blank'
-  else
-   name='LOD '//trim(integer_text(w-s-3))
-  end if
+  ! Unique reaction name with a common root per type (S1-E<e>-P<p>, PC, NTC, EB, LOD<n>) and the
+  ! run identifier (start date-time and run number), as written to the exported file.
+  s=r%ne*r%nr;e=0;rep=0
+  name=well_name(r,w)
  end function
 ! @nativefn NR2-M03-F0045
  logical function result_visible(r,w)result(v)
@@ -869,7 +860,9 @@ contains
   if(v==2)status='Control check failed: reject / investigate'
   if(v==4)status='Deliberate scenario: review required; controls passed'
   call label(trim(status),60,195,orange,2)
-  call label('Position   Identity / role                Extraction     Replicate       FAM Cq          YY Cq',60,250,purple,1)
+  call label('Position',60,250,purple,1);call label('Sample name (unique)',150,250,purple,1)
+  call label('Role',470,250,purple,1);call label('Extraction',650,250,purple,1);call label('Replicate',770,250,purple,1)
+  call label('Target (FAM) Cq',890,250,purple,1);call label('Endogene (YY) Cq',1040,250,purple,1)
   row=0
   do w=1,r%nw
    if(.not.result_visible(r,w))cycle
@@ -881,17 +874,19 @@ contains
    if(w==s+2)role='NTC'
    if(w==s+3)role='Extraction blank'
    if(w>=s+4)role='LOD control'
-   role=result_name(r,w)
+   if(w==s+4)role='LOD control 1'
+   if(w>s+4)role='LOD control '//trim(integer_text(w-s-3))
    pos=recorded_position(r%scenario,r%params,w,r%ne,r%nr)
-   call label(achar(65+pos/24)//trim(integer_text(mod(pos,24)+1)),60,y,ink,1);call label(role,150,y,ink,1)
-   if(e>0)call label(trim(integer_text(e)),420,y,ink,1)
-   if(rep>0)call label(trim(integer_text(rep)),540,y,ink,1)
+   call label(achar(65+pos/24)//trim(integer_text(mod(pos,24)+1)),60,y,ink,1)
+   call label(trim(result_name(r,w)),150,y,ink,1);call label(trim(role),470,y,ink,1)
+   if(e>0)call label(trim(integer_text(e)),650,y,ink,1)
+   if(rep>0)call label(trim(integer_text(rep)),770,y,ink,1)
    status='Not detected';if(r%cq(w)>0)status=real_text(r%cq(w),2)
    if(r%present(w)==0)status='Missing control'
-   call label(trim(status),660,y,ink,1)
+   call label(trim(status),890,y,ink,1)
    status='Not detected';if(r%cq2(w)>0)status=real_text(r%cq2(w),2)
    if(r%present(w)==0)status='Missing control'
-   call label(trim(status),860,y,ink,1)
+   call label(trim(status),1040,y,ink,1)
   end do
   if(row==0)call label('No names selected. Open Display selection to restore the view.',60,300,cyan,1)
  end subroutine
@@ -1117,22 +1112,35 @@ contains
  end function
 ! @nativefn NR2-M03-F0114
  function run_status_line(shown_cycle) result(s)
-  ! Run status in the wording of common instrument software: stage / step, block and lid.
+  ! Run status in the wording of common instrument software: run of batch, stage / step, block and lid.
   integer,intent(in)::shown_cycle
   character(len=160)::s
+  character(len=80)::rt
   integer::stg,stp
   if(ui_busy())then
+   rt=live_run_text();rt=rt(1:index(rt,', cycle')-1)
    call stage_step(phase,stg,stp)
    if(stg<current%nhold)then
-    s='STAGE 1, STEP '//trim(integer_text(stg+1))
+    s=trim(rt)//' | STAGE 1, STEP '//trim(integer_text(stg+1))
    else
-    s='STAGE 2, STEP '//trim(integer_text(stp+1))
+    s=trim(rt)//' | STAGE 2, STEP '//trim(integer_text(stp+1))
    end if
    s=trim(s)//' | cycle '//trim(integer_text(shown_cycle))//' / 45 | Block Temp: '//trim(real_text(.5d0*(plant(3)+plant(4)),1))// &
     ' C | Lid Temp: '//trim(real_text(plant(5),0))//' C'
   else
    s='No run in progress | '//trim(integer_text(nh))//' run(s) filed | '//trim(integer_text(shown_cycle))//' / 45 cycles shown'
   end if
+ end function
+! @nativefn NR2-M03-F0114B
+ function live_run_text() result(s)
+  ! Which run of the batch / selection is acquiring, its cycle, and how many are still queued.
+  character(len=80)::s
+  integer::left,tot
+  left=max(0,remaining-1)
+  if(queue_active.and.qpos<qn)left=left+sum(qreps(qpos+1:qn))
+  tot=current%serial+left
+  s='run '//trim(integer_text(current%serial))//' of '//trim(integer_text(tot))//', cycle '// &
+   trim(integer_text(current%ncy))//' / 45'
  end function
 ! @nativefn NR2-M03-F0115
  subroutine draw_protocol_strip(x,y,w,h)
@@ -2063,6 +2071,7 @@ contains
    ! molecule tools on a full-screen 3D molecule view
    call allocate_frame(width,height,rgba(10,7,13,255))
    call view_sources(view_k,nsrc,srcs)
+   nsrc=nsrc+1;srcs(nsrc)=stats_one_line()
    call mv_draw(0d0,62d0,real(width,c_double),real(height-62-(22*nsrc+40),c_double))
    call soft_panel(10,height-(22*nsrc+34),width-20,22*nsrc+28,10,rgba(24,15,23,255))
    call label('Sources',24,height-(22*nsrc+28),cyan,1)
@@ -2075,12 +2084,12 @@ contains
    call button(99,-1,'View <',x0,10,90,42,.true.);x0=x0+95
    call button(99,1,'View >',x0,10,90,42,.true.);x0=x0+95
    call button(1,0,'Back',x0,10,90,42,.true.)
-   call draw_memory_stats()
    ptr=c_loc(pixels(1));dirty=.false.;return
   end if
   if(page==12)then
    call allocate_frame(width,height,rgba(10,7,13,255))
    call view_sources(view_k,nsrc,srcs)
+   nsrc=nsrc+1;srcs(nsrc)=stats_one_line()
    th_zoom=.6d0                ! 3D views fill the full-screen page
    call case_view(view_k,0d0,62d0,real(width,c_double),real(height-62-(22*nsrc+40),c_double),anim_t)
    th_zoom=1
@@ -2099,7 +2108,6 @@ contains
    call button(99,-1,'<',width-420,10,50,42,.true.)
    call button(99,1,'>',width-365,10,50,42,.true.)
    call button(1,0,'Back',width-310,10,130,42,.true.)
-   call draw_memory_stats()
    ptr=c_loc(pixels(1));dirty=.false.;return
   end if
   if(page==10)then
@@ -2136,6 +2144,7 @@ contains
   else
    call button(1,0,'Home / Go back',width-200,32,170,42,.true.)
   end if
+  if(ui_busy().and.page/=1)call button(55,0,'Live run: '//trim(live_run_text()),width-900,32,340,42,.true.)
   if(au_on)then
    call button(93,0,'Sounds: on',width-540,32,160,42,.true.)
   else
@@ -2154,7 +2163,9 @@ contains
    call soft_panel(width-400,180,340,18,9,purple)
    call soft_panel(width-310,210,250,18,9,orange)
    cw=(width-160)/3
-   if(selection_runs()>0)then
+   if(ui_busy())then
+    call home_card(55,'Virtual PCR','Running: '//trim(live_run_text())//'. Click: live view / stop',1,60,300,cw,.true.,orange)
+   else if(selection_runs()>0)then
     call home_card(55,'Virtual PCR','Run the selection: '//trim(integer_text(selection_runs()))//' run(s)',1,60,300,cw, &
      .not.ui_busy().and.selection_runs()<=maxruns-nh,orange)
    else
@@ -2198,9 +2209,9 @@ contains
    call button(18,0,'Reset chart',325,height-132,145,44,graphmode/=3)
    call button(3,0,'Results',490,height-132,140,44,nh>0)
    call button(7,0,'Stop and file current run',650,height-132,245,44,ui_busy())
-   call button(28,0,'FAM / YY channel',915,height-132,210,44,graphmode==0.or.graphmode==2)
-   if(graphmode==2)call label('YY channel',740,142,cyan,1)
-   if(graphmode==0)call label('FAM channel',740,142,cyan,1)
+   call button(28,0,'Target / endogene',915,height-132,210,44,graphmode==0.or.graphmode==2)
+   if(graphmode==2)call label('Endogenous gene (YY channel)',740,142,cyan,1)
+   if(graphmode==0)call label('Target gene (FAM channel)',740,142,cyan,1)
   else if(page==2)then
    if(selected>0)call draw_results(history(selected))
    call button(33,0,'Display selection',60,height-122,240,44,selected>0)
@@ -2227,30 +2238,70 @@ contains
   ptr=c_loc(pixels(1));dirty=.false.
  end function
 ! @nativefn NR2-M03-F0120
- subroutine draw_memory_stats()
-  ! Always-on memory panel, bottom right of every page. Sampled once a second (native_tick).
-  character(len=120)::l1,l2
-  integer::bw,bx,by
-  if(sys_native)then
-   l1='Memory: native test build';l2='(no browser figures)'
-  else
-   l1='Memory  app heap '//trim(mb_text(sys_heap_mb))//'   JS heap '//trim(mb_text(sys_js_used_mb))
-   if(sys_js_limit_mb>0)l1=trim(l1)//' / '//trim(mb_text(sys_js_limit_mb))
-   l2='Device RAM (browser estimate) '//trim(mb_text(sys_device_mb))
-  end if
-  bw=max(label_width(trim(l1),1),label_width(trim(l2),1))+24
-  bx=width-bw-10;by=height-58
+ function stats_lines(n) result(l)
+  ! Memory figures and background case-curve progress (1 to 3 lines).
+  integer,intent(out)::n
+  character(len=120)::l(3)
+  n=0;l=''
   if(page>=0.and.(warm_on.or.pv_bg))then
-   ! background case-curve preparation, shown on every page while it runs
-   by=by-22
-   call soft_panel(bx,by,bw,72,8,rgba(24,16,30,235))
-   call label('Case curves (background) '//trim(integer_text(cached_cases()))//' / 50',bx+12,by+6,orange,1)
-   by=by+22
-  else
-   call soft_panel(bx,by,bw,50,8,rgba(24,16,30,235))
+   n=n+1;l(n)='Case curves (background) '//trim(integer_text(cached_cases()))//' / 50'
   end if
-  call label(trim(l1),bx+12,by+6,cyan,1)
-  call label(trim(l2),bx+12,by+27,ink,1)
+  if(sys_native)then
+   n=n+1;l(n)='Memory: native test build (no browser figures)'
+  else
+   n=n+1;l(n)='Memory  app heap '//trim(mb_text(sys_heap_mb))//'   JS heap '//trim(mb_text(sys_js_used_mb))
+   if(sys_js_limit_mb>0)l(n)=trim(l(n))//' / '//trim(mb_text(sys_js_limit_mb))
+   n=n+1;l(n)='Device RAM (browser estimate) '//trim(mb_text(sys_device_mb))
+  end if
+ end function
+ function stats_one_line() result(t)
+  ! The same figures on one line, for the Sources bar of full-screen views.
+  character(len=220)::t
+  character(len=120)::l(3)
+  integer::n,i
+  l=stats_lines(n);t='Status: '//trim(l(1))
+  do i=2,n
+   t=trim(t)//'  |  '//trim(l(i))
+  end do
+ end function
+! @nativefn NR2-M03-F0120B
+ subroutine draw_memory_stats()
+  ! Memory figures and background progress, placed where they never cover content: in the page
+  ! header beside the colour bars; on full-screen pages in the free strip under the top buttons;
+  ! on start-up pages bottom right. (Full-screen views show them in their Sources bar instead.)
+  character(len=120)::l(3)
+  integer::n,i,bw,bx,by
+  l=stats_lines(n)
+  bw=0
+  do i=1,n
+   bw=max(bw,label_width(trim(l(i)),1))
+  end do
+  if(page<0)then
+   bx=width-bw-34;by=height-12-22*n
+   call soft_panel(bx,by-6,bw+24,22*n+10,8,rgba(24,16,30,235))
+   bx=bx+12
+  else if(page==9.or.page==11)then
+   bx=width-bw-30;by=58;if(page==11)by=58
+   if(page==9)then
+    call label(trim(stats_one_line()),width-label_width(trim(stats_one_line()),1)-30,58,purple,1)
+    return
+   end if
+   call label(trim(stats_one_line()),width-label_width(trim(stats_one_line()),1)-30,56,purple,1)
+   return
+  else if(page==10)then
+   call label(trim(stats_one_line()),width-label_width(trim(stats_one_line()),1)-30,26,purple,1)
+   return
+  else
+   bx=560;by=46
+   if(n<3)by=56
+  end if
+  do i=1,n
+   if(index(l(i),'Case curves')==1)then
+    call label(trim(l(i)),bx,by+(i-1)*20,orange,1)
+   else
+    call label(trim(l(i)),bx,by+(i-1)*20,merge(cyan,ink,i<n.or.n==1),1)
+   end if
+  end do
  end subroutine
 ! @nativefn NR2-M03-F0121
  function mb_text(m) result(t)
@@ -2390,12 +2441,16 @@ contains
   case(53)
    call start_selection();if(ui_busy())page=1
   case(55)
-   if(selection_runs()>0)then
-    call start_selection()
+   if(ui_busy())then
+    page=1;graphmode=0        ! a run is going on: open its live view (Stop is there)
    else
-    call start_batch()
+    if(selection_runs()>0)then
+     call start_selection()
+    else
+     call start_batch()
+    end if
+    if(ui_busy())page=1
    end if
-   if(ui_busy())page=1
   case(54)
    if(.not.ui_busy())sel_n=0
   case(57)

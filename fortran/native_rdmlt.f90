@@ -16,7 +16,7 @@ module native_rdmlt
  use native_codec
  implicit none
  private
- public :: export_run, export_all_runs
+ public :: export_run, export_all_runs, sample_id, well_name, run_tag
  integer, parameter :: maxf = 200, periods = 100, spp = 8
  character(len=1), parameter :: tb = achar(9)
  character(len=40), save :: fname(maxf), fid(maxf), fmedia(maxf)
@@ -218,22 +218,51 @@ contains
   end select
  end function
 ! @nativefn NR2-M06-F0012
+ function run_tag(r) result(s)
+  ! Run identifier that stays unique across sessions: start date and time plus the run number,
+  ! e.g. RUN20261124-231005-02 (falls back to RUN02 when the start time is unknown).
+  type(run_t),intent(in)::r
+  character(len=32)::s
+  character(len=2)::nn
+  nn=achar(48+mod(r%serial/10,10))//achar(48+mod(r%serial,10))
+  if(len_trim(r%started)>=19)then
+   s='RUN'//r%started(1:4)//r%started(6:7)//r%started(9:10)//'-'//r%started(12:13)//r%started(15:16)//r%started(18:19)//'-'//nn
+  else
+   s='RUN'//nn
+  end if
+ end function
  function sample_id(r,w) result(s)
+  ! Sample names start with a common root per type so they can be grouped across runs:
+  ! S1-E<extraction>_<run>, PC_<run>, NTC_<run>, EB_<run> (extraction blank), LOD<n>_<run>.
   type(run_t),intent(in)::r
   integer,intent(in)::w
-  character(len=40)::s
+  character(len=48)::s
   integer::n
   n=r%ne*r%nr
   if(w<=n)then
-   s='NATIVE-'//trim(it(r%serial))//'-S1-E'//trim(it((w-1)/r%nr+1))
+   s='S1-E'//trim(it((w-1)/r%nr+1))//'_'//trim(run_tag(r))
   else if(w==n+1)then
-   s='NATIVE-'//trim(it(r%serial))//'-PC'
+   s='PC_'//trim(run_tag(r))
   else if(w==n+2)then
-   s='NATIVE-'//trim(it(r%serial))//'-NTC'
+   s='NTC_'//trim(run_tag(r))
   else if(w==n+3)then
-   s='NATIVE-'//trim(it(r%serial))//'-NAC'
+   s='EB_'//trim(run_tag(r))
   else
-   s='NATIVE-'//trim(it(r%serial))//'-PC-LOD-'//trim(it(w-n-3))
+   s='LOD'//trim(it(w-n-3))//'_'//trim(run_tag(r))
+  end if
+ end function
+ function well_name(r,w) result(s)
+  ! Unique name of one reaction: the sample name with the PCR replicate for samples
+  ! (S1-E<e>-P<p>_<run>); controls are one reaction each and keep their sample name.
+  type(run_t),intent(in)::r
+  integer,intent(in)::w
+  character(len=52)::s
+  integer::n
+  n=r%ne*r%nr
+  if(w<=n)then
+   s='S1-E'//trim(it((w-1)/r%nr+1))//'-P'//trim(it(mod(w-1,r%nr)+1))//'_'//trim(run_tag(r))
+  else
+   s=sample_id(r,w)
   end if
  end function
 ! @nativefn NR2-M06-F0013
@@ -1743,7 +1772,7 @@ contains
   end do
   do w=1,r%nw
    if(r%present(w)==0)cycle
-   call add('<react id="'//trim(it(pos_of(r,w)+1))//'"><description>'//trim(sample_id(r,w))//'</description><position>'// &
+   call add('<react id="'//trim(it(pos_of(r,w)+1))//'"><description>'//trim(well_name(r,w))//'</description><position>'// &
     trim(pos_label(pos_of(r,w)))//'</position><sample id="'//trim(sample_id(r,w))//'"/><volume unit="uL" origin="programmed">20'// &
     '</volume>')
    do c=1,2
