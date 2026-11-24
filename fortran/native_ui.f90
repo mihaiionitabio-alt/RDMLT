@@ -44,6 +44,7 @@ module native_ui
  integer,save::pv_channel=1
  logical,save::show_fault=.true.,show_structure=.false.
  integer,save::struct_idx=1
+ logical,save::pv_show_norm=.true.,pv_show_fault=.true.
  integer(c_int32_t),parameter::bg=int(z'FF10090D',c_int32_t),orange=int(z'FF649BFF',c_int32_t)
  integer(c_int32_t),parameter::purple=int(z'FFC99ACB',c_int32_t),ink=int(z'FFF3E0EA',c_int32_t)
  integer(c_int32_t),parameter::panel=int(z'FF281723',c_int32_t),cyan=int(z'FFDCDC60',c_int32_t)
@@ -691,17 +692,28 @@ contains
   if(.not.scenario_available(p_scenario))then
    st='No curves: this case needs a melt workflow the probe model does not have.'
   else if(pv_code/=p_scenario.or.pv_state==0)then
-   st='Press Recompute curves to simulate this case against the normal reference.'
+   st='Press Recompute curves to simulate this case.'
   else if(pv_state==1)then
-   st='Simulating the normal reference: cycle '//trim(integer_text(current%ncy))//' / 45'
+   st='Normal reference: cycle '//trim(integer_text(current%ncy))//' / 45'
   else if(pv_state==2)then
-   st='Simulating the fault: cycle '//trim(integer_text(current%ncy))//' / 45'
+   st='Fault: cycle '//trim(integer_text(current%ncy))//' / 45, real '//trim(clock_text(wall_run,.false.))// &
+    ' (cycler '//trim(clock_text(current%elapsed,.true.))//')'
   else if(stale)then
-   st='Settings changed since these curves: press Recompute curves.'
+   st='Settings changed: press Recompute curves.'
   else
-   st='Full numerical model, same seed and profile: fault (colours) vs normal (purple).'
+   st='Full model, same seed and profile.'
   end if
   call label(trim(st),x+14,y+8,cyan,1)
+  if(pv_show_norm)then
+   call button(63,0,'Normal: shown',x+w-290,y+4,140,26,.true.)
+  else
+   call button(63,0,'Normal: hidden',x+w-290,y+4,140,26,.true.)
+  end if
+  if(pv_show_fault)then
+   call button(64,0,'Fault: shown',x+w-142,y+4,130,26,.true.)
+  else
+   call button(64,0,'Fault: hidden',x+w-142,y+4,130,26,.true.)
+  end if
   lo=1d9;hi=-1d9
   call range_of(pv_norm,have_n);call range_of_f()
   if(pv_code==p_scenario.and.pv_state==1.and.preview_mode)call range_of(curves_of(current),.true.)
@@ -718,9 +730,9 @@ contains
   call label(trim(integer_text(nint(hi))),x+6,nint(gy)-6,ink,1)
   call label(trim(integer_text(nint(lo))),x+6,nint(gy+gh)-14,ink,1)
   call label('cycle',nint(gx+gw)-40,nint(gy+gh)+24,purple,1)
-  if(have_n)call curves(pv_norm,.true.)
-  if(pv_code==p_scenario.and.pv_state==1.and.preview_mode)call curves(curves_of(current),.true.)
-  if(have_f)then
+  if(have_n.and.pv_show_norm)call curves(pv_norm,.true.)
+  if(pv_code==p_scenario.and.pv_state==1.and.preview_mode.and.pv_show_norm)call curves(curves_of(current),.true.)
+  if(have_f.and.pv_show_fault)then
    if(pv_state==3)then
     call curves(pv_fault,.false.)
    else
@@ -736,10 +748,10 @@ contains
     '   Blank '//trim(cq_text(cqc(pv_norm,s+3)))//' / '//trim(cq_text(cqc(pv_fault,s+3)))
    if(pv_channel==2)st='YY channel: '//trim(st)
    call label(trim(st),x+14,y+h-40,ink,1)
-   call label('Fault run: '//trim(status_text(pv_fault%status))//'; '//trim(integer_text(pv_fault%ncy))//' cycles recorded.', &
-    x+14,y+h-20,orange,1)
+   call label('Fault run: '//trim(status_text(pv_fault%status))//'; '//trim(integer_text(pv_fault%ncy))// &
+    ' cycles.   Normal = grey dashed, fault = colours.',x+14,y+h-20,orange,1)
   else
-   call label('Legend: purple normal | orange samples | violet PC | green NTC | cyan blank | yellow LOD',x+14,y+h-30,purple,1)
+   call label('Normal: grey dashed.  Fault: orange samples, violet PC, green NTC, cyan blank, yellow LOD',x+14,y+h-30,ink,1)
   end if
  contains
   subroutine range_of(r,ok)
@@ -777,7 +789,7 @@ contains
     if(j==ss+2)c=rgba(75,220,135,255)
     if(j==ss+3)c=cyan
     if(j>=ss+4)c=rgba(255,210,70,255)
-    if(normal)c=rgba(150,110,160,255)
+    if(normal)c=rgba(185,185,195,255)
     do i=1,r%ncy-1
      v=r%y(i,j);v1=r%y(i+1,j)
      if(pv_channel==2)then
@@ -787,7 +799,7 @@ contains
      x0=gx+gw*(i-1)/44d0;x1=gx+gw*i/44d0
      y0=gy+gh-(v-lo)/(hi-lo)*gh;y1=gy+gh-(v1-lo)/(hi-lo)*gh
      if(normal)then
-      call aa_line(x0,y0,x1,y1,c,1d0,.false.,clip)
+      call aa_line(x0,y0,x0+(x1-x0)*.55d0,y0+(y1-y0)*.55d0,c,1.4d0,.false.,clip)
      else
       call aa_line(x0,y0,x1,y1,c,1.6d0,.false.,clip)
      end if
@@ -1514,6 +1526,10 @@ contains
    show_fault=.not.show_fault
   case(60)
    show_structure=.not.show_structure
+  case(63)
+   pv_show_norm=.not.pv_show_norm
+  case(64)
+   pv_show_fault=.not.pv_show_fault
   case(62)
    if(graphmode==3)then
     graphmode=0

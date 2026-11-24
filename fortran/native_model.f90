@@ -60,7 +60,7 @@ module native_model
  logical,save :: queue_active=.false.
  ! Real (wall-clock) seconds of the acquisition in progress and the instrument time of the last
  ! completed run, used to show real versus simulated time (about 30 s per run at the default 168x).
- real(c_double),save :: wall_run=0,last_full_elapsed=5040
+ real(c_double),save :: wall_run=0,last_full_elapsed=5040,pv_budget=0
 contains
 ! @nativefn NR2-M01-F0001
  function integer_text(v) result(s)
@@ -678,8 +678,19 @@ contains
   real(c_double),intent(in)::wall_ms
   integer::i,steps
   if(preview_mode)then
-   if(.not.running)call preview_begin()
-   do i=1,pv_steps
+   ! The normal reference is computed quickly; the fault run is paced like a real run
+   ! (about 30 s at the default acceleration) so its curves grow in front of the reference.
+   if(.not.running)then
+    call preview_begin()
+   end if
+   if(pv_state==1)then
+    steps=pv_steps
+   else
+    wall_run=wall_run+min(1000d0,max(0d0,wall_ms))/1000
+    pv_budget=pv_budget+min(1000d0,max(0d0,wall_ms))*p_speed/1000
+    steps=min(2000,int(pv_budget/.05d0));pv_budget=pv_budget-steps*.05d0
+   end if
+   do i=1,steps
     if(.not.running)exit
     call advance_one()
    end do
@@ -736,7 +747,7 @@ contains
   ! begin_run reads the case from p_scenario; the selection shown in the interface is kept.
   character(len=160)::keep
   integer::shown
-  keep=message;shown=p_scenario
+  keep=message;shown=p_scenario;pv_budget=0;wall_run=0
   p_scenario=pv_code;if(pv_state==1)p_scenario=0
   call begin_run();message=keep;p_scenario=shown
  end subroutine

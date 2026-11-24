@@ -456,8 +456,9 @@ module native_references
    "hows an animation of the mechanism (generic 16-tube cycler with section and detector tim" // &
    "ing, molecules in the well, wells and plate map, data path, or one of four protein-DNA s" // &
    "tructures) and the fault curves against the normal reference, both simulated with the fu" // &
-   "ll model, same seed and profile. The animations illustrate the mechanism; they are not m" // &
-   "easurements.", &
+   "ll model, same seed and profile: the normal reference (grey dashed) is computed first, t" // &
+   "hen the fault run (role colours) is paced like a real run (about 30 s); either set can b" // &
+   "e shown or hidden. The animations illustrate the mechanism; they are not measurements.", &
   "Run page: the Instrument button shows a live view of the run in progress (thermal plant," // &
    " controller outputs, LED reads and photodiode readings), drawn in Fortran.", &
   "Exports: full RDMLt packages with the MISSY R2 layout (RDML 1.3 core, RDMLt companion wi" // &
