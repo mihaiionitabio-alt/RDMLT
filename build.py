@@ -20,13 +20,17 @@ def main():
     parser.add_argument("--wasm", action="store_true")
     options = parser.parse_args()
     BUILD.mkdir(parents=True, exist_ok=True)
-    files = [SRC / ("r2_" + name + ".f90") for name in ORDER] + [SRC / (name + ".f90") for name in ["json_fortran_browser_strings","stdlib_browser_stats","native_scenarios","native_model","native_codec","native_io","native_rdmlt","native_references","native_structure","native_anim","native_theatre","native_ui"]]
-    source = "\n".join(p.read_text(encoding="utf-8") for p in files)
+    files = [SRC / ("r2_" + name + ".f90") for name in ORDER] + [SRC / (name + ".f90") for name in ["json_fortran_browser_strings","stdlib_browser_stats","native_scenarios","native_model","native_codec","native_io","native_rdmlt","native_references","native_structure","native_anim","native_theatre","native_sys_SYSVARIANT","native_ui"]]
+    # native_sys has two variants: the browser one calls the Emscripten runtime, the gfortran
+    # test build gets a stub with the same interface.
+    def variant(v):
+        return [Path(str(f).replace("SYSVARIANT", v)) for f in files]
+    source = "\n".join(p.read_text(encoding="utf-8") for p in variant("wasm"))
     if options.native:
         native_mods=BUILD/"gnu-modules"
         native_mods.mkdir(exist_ok=True)
         subprocess.run([str(x) for x in [os.environ.get("FC", "gfortran"), "-std=f2018", "-ffree-line-length-none", "-O2", "-fno-fast-math", "-ffp-contract=off",
-             "-fcheck=all", "-fPIC", "-shared", *files, "-o", BUILD / "libr2.so"]],cwd=native_mods,check=True)
+             "-fcheck=all", "-fPIC", "-shared", *variant("gnu"), "-o", BUILD / "libr2.so"]],cwd=native_mods,check=True)
     if options.wasm:
         compiler = os.environ.get("LFORTRAN", "lfortran")
         (BUILD / "kernel.f90").write_bytes(source.encode("utf-8"))

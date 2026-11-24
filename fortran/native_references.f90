@@ -2,8 +2,8 @@
 ! References page data. Generated from the project reference list (UTF-8 text as achar byte sequences).
 module native_references
  implicit none
- integer, parameter :: nref=150, ref_len=946
- integer, parameter :: ref_section(nref)=[1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,3,3,3,3,3,3,3,3,3]
+ integer, parameter :: nref=151, ref_len=946
+ integer, parameter :: ref_section(nref)=[1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,3,3,3,3,3,3,3,3,3,3]
  character(len=48), parameter :: section_title(3)=[character(len=48):: "Literature, standards and repositories", &
   "Software and specifications used in this edition","Edition notes and controls"]
  character(len=ref_len), parameter :: ref_text(nref)=[character(len=ref_len):: &
@@ -523,14 +523,22 @@ module native_references
    "marker, current step highlighted) and a status line (STAGE / STEP, cycle, Block Temp, Li" // &
    "d Temp) follow the conventions of open instrument software. Theatre labels are off by de" // &
    "fault (Labels button).", &
+  "Start-up and memory: while the start-up screen shows PDB 8UCU turning in 3-D, the normal" // &
+   " reference run is computed with the full model; the home page then opens and the 50 case" // &
+   " curves are computed in the background, so a case opened later replays at the pace of a " // &
+   "real run. Live curves already show the record-level fault effects (the file applies them" // &
+   " to the whole run), so a fault curve no longer jumps at the end of the run. A panel at t" // &
+   "he bottom right of every page shows memory: the application heap (Emscripten runtime) an" // &
+   "d, where the browser exposes them, the JavaScript heap and the device memory estimate (n" // &
+   "avigator.deviceMemory, rounded by the browser).", &
   "Animation theatre (home card 07): nine full-screen scenes drawn by the Fortran rasterise" // &
    "r with Previous / Next (or the arrow keys): 3-D instrument with a molecular callout, 3-D" // &
-   " DNA with molecular dynamics and the 8UCU polymerase, electrical schematics with current" // &
-   " flow and oscilloscope traces, a live 2-D heat equation, optics ray tracing with spectra" // &
-   " and an FDTD wave panel, an SPH fluid in a tube, enzyme kinetics with a competitive inhi" // &
-   "bitor, a 3-D amplification surface, and a deep zoom from the tube to the polymerase acti" // &
-   "ve site. Illustrations of mechanisms; methods re-implemented, no third-party code includ" // &
-   "ed.", &
+   " DNA with molecular dynamics and the real 8UCU template / primer atoms and polymerase, e" // &
+   "lectrical schematics with current flow and oscilloscope traces, a live 2-D heat equation" // &
+   ", optics ray tracing with spectra and an FDTD wave panel, an SPH fluid in a tube, enzyme" // &
+   " kinetics with a competitive inhibitor, a 3-D amplification surface, and a deep zoom fro" // &
+   "m the tube to the polymerase active site. Illustrations of mechanisms; methods re-implem" // &
+   "ented, no third-party code included.", &
   "qPCR scenarios: tick any number of cards (and the normal run) and set how many runs each" // &
    "; Run selection files them one after another, up to the 32-run history. Opening a card s" // &
    "hows an animation of the mechanism (generic 16-tube cycler with section and detector tim" // &

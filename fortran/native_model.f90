@@ -55,6 +55,12 @@ module native_model
   real(c_double) :: y(45,maxw)=0,y2(45,maxw)=0,cq(maxw)=0,cq2(maxw)=0,params(6)=0
  end type
  type(curve_t),save :: pv_norm,pv_fault
+ ! Start-up / background cache of preview curves: index 0 = normal reference, 1..51 = cases.
+ ! Valid for one profile key; a cached case is replayed at the real-run pace (pv_state 4).
+ type(curve_t),allocatable,save :: pv_cache(:)
+ logical,save :: pv_cached(0:51)=.false.,pv_bg=.false.,warm_on=.false.,warm_hold=.false.,pv_force=.false.
+ integer,save :: cache_key(8)=-1,warm_next=1
+ real(c_double),save :: replay_t=0
  ! Multi-case selection: number of runs requested per scenario code (0 = normal run).
  integer,save :: sel_n(0:51)=0,sel_last(0:51)=1,qn=0,qpos=0,qcode(52)=0,qreps(52)=0,q_saved=0
  logical,save :: queue_active=.false.
@@ -612,79 +618,114 @@ contains
 ! @nativefn NR2-M01-F0010
  subroutine apply_record_scenario(r)
   type(run_t),intent(inout)::r
-  real(c_double)::p(6),base,plateau,old(45),old2(45),v,noise,rr
-  integer::code,w,k,j,n,src,first,last
-  code=r%scenario;if(code==0)return
-  p=r%params;n=r%ncy;rr=real(r%seed,c_double)+42443+p(6)
-  do w=1,r%nw
-   if(.not.affects(code,p,w,r%ne,r%nr).or.r%present(w)==0)cycle
-   old=r%y(:,w);old2=r%y2(:,w);base=old(1)
+  if(r%scenario==0)return
+  call scenario_effects(r%scenario,r%params,r%seed,r%ncy,r%nw,r%ne,r%nr,r%present,r%y,r%y2)
+ end subroutine
+! @nativefn NR2-M01-F0055
+ function live_curves(r) result(c)
+  ! Display-only view of a run in progress: the record-level fault effects that finish_run
+  ! applies to the whole file are applied to the cycles read so far, so the live curve
+  ! already shows the fault instead of following the normal path and jumping at the end.
+  ! Unread cycles are padded with the last reading and the run is treated as full length,
+  ! so the noise sequence (and therefore every plotted point) matches the filed record.
+  type(run_t),intent(in)::r
+  type(curve_t)::c
+  integer::n,w,k
+  c=curves_of(r)
+  if(r%scenario==0.or.r%ncy<1.or..not.running)return   ! filed records already carry the effects
+  n=r%ncy
+  do w=1,c%nw
+   do k=n+1,45
+    c%y(k,w)=c%y(n,w);c%y2(k,w)=c%y2(n,w)
+   end do
+  end do
+  call scenario_effects(r%scenario,r%params,r%seed,max(n,min(45,r%planned_cycles)),c%nw,c%ne,c%nr,c%present,c%y,c%y2)
+  do w=1,c%nw
+   do k=n+1,45
+    c%y(k,w)=0;c%y2(k,w)=0
+   end do
+  end do
+ end function
+! @nativefn NR2-M01-F0056
+ subroutine scenario_effects(code,pin,seed,n,nw,ne,nr,present,y,y2)
+  integer,intent(in)::code,seed,n,nw,ne,nr,present(:)
+  real(c_double),intent(in)::pin(6)
+  real(c_double),intent(inout)::y(:,:),y2(:,:)
+  real(c_double)::p(6),base,plateau,old(45),old2(45),rr
+  integer::w,k,j,src,first,last
+  p=pin;rr=real(seed,c_double)+42443+p(6)
+  do w=1,nw
+   if(.not.affects(code,p,w,ne,nr).or.present(w)==0)cycle
+   old=y(:,w);old2=y2(:,w);base=old(1)
    select case(code)
    case(3)
     do k=max(1,nint(p(3))),n
-     r%y(k,w)=max(0d0,real(nint(old(k)*(1-p(2)*(k-p(3)))*(1+.03d0*rng_gauss(rr))),c_double))
+     y(k,w)=max(0d0,real(nint(old(k)*(1-p(2)*(k-p(3)))*(1+.03d0*rng_gauss(rr))),c_double))
     end do
    case(5,17)
     do k=1,n
-     r%y2(k,w)=real(nint(old2(k)+p(1)*max(0d0,old(k)-base)),c_double)
+     y2(k,w)=real(nint(old2(k)+p(1)*max(0d0,old(k)-base)),c_double)
     end do
    case(19)
     first=nint(p(1));last=min(n,first+nint(p(2))-1)
     if(first<=n)then
-     r%y(first:last,w)=-1;r%y2(first:last,w)=-1
+     y(first:last,w)=-1;y2(first:last,w)=-1
     end if
    case(26)
     if(n<5)cycle
     base=sum(old(1:5))/5;plateau=p(1)*(maxval(old(1:n))-base)
     if(plateau<=0)cycle
     do k=1,n
-     r%y(k,w)=real(max(0,nint(base+plateau*tanh((old(k)-base)/plateau))),c_double)
+     y(k,w)=real(max(0,nint(base+plateau*tanh((old(k)-base)/plateau))),c_double)
     end do
    case(36)
     do k=1,n
-     r%y(k,w)=real(nint((1-p(1))*old(k)+p(1)*old2(k)),c_double)
-     r%y2(k,w)=real(nint((1-p(1))*old2(k)+p(1)*old(k)),c_double)
+     y(k,w)=real(nint((1-p(1))*old(k)+p(1)*old2(k)),c_double)
+     y2(k,w)=real(nint((1-p(1))*old2(k)+p(1)*old(k)),c_double)
     end do
    case(39)
     do k=max(1,nint(p(2))),n
-     r%y(k,w)=real(max(0,nint(old(k)*(1-p(1)*(k-p(2))))),c_double)
+     y(k,w)=real(max(0,nint(old(k)*(1-p(1)*(k-p(2))))),c_double)
     end do
    case(41)
     do j=1,nint(p(1))
      k=min(n-1,nint(p(3))+3*(j-1));if(k<1)cycle
-     r%y(k,w)=real(max(0,nint(base+(old(k)-base)*(1-p(2))-.25d0*base)),c_double)
-     r%y(k+1,w)=real(nint(old(k+1)*1.18d0),c_double)
+     y(k,w)=real(max(0,nint(base+(old(k)-base)*(1-p(2))-.25d0*base)),c_double)
+     y(k+1,w)=real(nint(old(k+1)*1.18d0),c_double)
     end do
    case(45,46)
     j=nint(p(1));if(code==46)j=nint(p(2))
     do k=1,n
-     src=max(1,k-j);r%y(k,w)=old(src);r%y2(k,w)=old2(src)
+     src=max(1,k-j);y(k,w)=old(src);y2(k,w)=old2(src)
      if(code==46)then
-      r%y(k,w)=r%y(k,w)+p(1)
-      if(k==5)r%y(k,w)=r%y(k,w)+p(3)
+      y(k,w)=y(k,w)+p(1)
+      if(k==5)y(k,w)=y(k,w)+p(3)
      end if
     end do
    case(47)
     do k=max(1,nint(p(2))),n
-     r%y(k,w)=old(k)+p(1)*(k-p(2))
+     y(k,w)=old(k)+p(1)*(k-p(2))
     end do
    end select
   end do
-  where(r%y>=0)r%y=min(65535d0,anint(r%y))
-  where(r%y2>=0)r%y2=min(65535d0,anint(r%y2))
+  where(y>=0)y=min(65535d0,anint(y))
+  where(y2>=0)y2=min(65535d0,anint(y2))
  end subroutine
 ! @nativefn NR2-M01-F0013
  subroutine tick_model(wall_ms)
   real(c_double),intent(in)::wall_ms
   integer::i,steps
+  if(preview_mode.and.pv_bg.and.warm_hold)then
+   call cancel_preview();return
+  end if
   if(preview_mode)then
    ! The normal reference is computed quickly; the fault run is paced like a real run
    ! (about 30 s at the default acceleration) so its curves grow in front of the reference.
    if(.not.running)then
     call preview_begin()
    end if
-   if(pv_state==1)then
-    steps=pv_steps
+   if(pv_state==1.or.pv_bg)then
+    steps=pv_steps;if(pv_bg)steps=1500
    else
     wall_run=wall_run+min(1000d0,max(0d0,wall_ms))/1000
     pv_budget=pv_budget+min(1000d0,max(0d0,wall_ms))*p_speed/1000
@@ -695,6 +736,10 @@ contains
     call advance_one()
    end do
    return
+  end if
+  if(.not.running.and.remaining<=0.and..not.queue_active)then
+   call warm_tick()
+   if(preview_mode)return
   end if
   if(.not.running)then
    if(remaining<=0.and.queue_active)then
@@ -734,6 +779,16 @@ contains
    pv_state=0;pv_code=code;return
   end if
   key=[p_ext,p_rep,p_copies,p_threshold,p_seed,p_prog,p_fault,1]
+  call cache_check(key)
+  if(.not.pv_force.and..not.pv_bg.and.code>0)then
+   if(pv_cached(0).and.pv_cached(code))then
+    if(all(abs(pv_cache(code)%params-scenario_bank(:,code))<1d-12))then
+     ! precomputed at start-up / in the background: replay at the pace of a real run
+     pv_norm=pv_cache(0);pv_fault=pv_cache(code);pv_code=code;pv_state=4;replay_t=0;return
+    end if
+   end if
+  end if
+  pv_force=.false.
   pv_saved_scenario=p_scenario;pv_code=code;preview_mode=.true.
   if(all(key==pv_key))then
    pv_state=2
@@ -756,13 +811,20 @@ contains
   ! Called by finish_run while previewing: keeps the record out of the history.
   if(pv_state==1)then
    pv_norm=curves_of(current);pv_state=2   ! the fault run starts on the next tick
+   call cache_store(0,pv_norm)
+   if(pv_code==0)then
+    pv_fault=pv_norm;call preview_end()
+   end if
   else
-   pv_fault=curves_of(current);call preview_end()
+   pv_fault=curves_of(current);call cache_store(pv_code,pv_fault);call preview_end()
   end if
  end subroutine
 ! @nativefn NR2-M01-F0044
  subroutine preview_end()
   pv_state=3;preview_mode=.false.;p_scenario=pv_saved_scenario;running=.false.;current=run_t()
+  if(pv_bg)then
+   pv_bg=.false.;pv_state=0;pv_code=-1
+  end if
   if(allocated(hfr(0)%v))deallocate(hfr(0)%v)
   if(allocated(hfr(0)%g))deallocate(hfr(0)%g)
   if(allocated(hfr(0)%c))deallocate(hfr(0)%c)
@@ -774,6 +836,67 @@ contains
   if(pv_state==1)pv_key=-1
   call preview_end();pv_state=0
  end subroutine
+! @nativefn NR2-M01-F0049
+ subroutine cache_check(key)
+  integer,intent(in)::key(8)
+  if(.not.allocated(pv_cache))allocate(pv_cache(0:51))
+  if(any(key/=cache_key))then
+   cache_key=key;pv_cached=.false.;warm_next=1
+  end if
+ end subroutine
+! @nativefn NR2-M01-F0050
+ subroutine cache_store(code,c)
+  integer,intent(in)::code
+  type(curve_t),intent(in)::c
+  integer::key(8)
+  key=[p_ext,p_rep,p_copies,p_threshold,p_seed,p_prog,p_fault,1]
+  call cache_check(key)
+  if(code>=0.and.code<=51)then
+   pv_cache(code)=c;pv_cached(code)=.true.
+  end if
+ end subroutine
+! @nativefn NR2-M01-F0051
+ subroutine start_background(code)
+  ! Full-speed preview of one case for the cache (no pacing, interface not marked busy).
+  integer,intent(in)::code
+  integer::key(8)
+  if(running.or.preview_mode)return
+  key=[p_ext,p_rep,p_copies,p_threshold,p_seed,p_prog,p_fault,1]
+  call cache_check(key)
+  pv_bg=.true.;pv_saved_scenario=p_scenario;pv_code=code;preview_mode=.true.
+  if(pv_cached(0).and.all(key==pv_key))then
+   pv_norm=pv_cache(0);pv_state=2
+  else
+   pv_key=key;pv_state=1
+  end if
+  call preview_begin()
+ end subroutine
+! @nativefn NR2-M01-F0052
+ subroutine warm_tick()
+  ! Background warm-up: compute the next uncached case while the interface is idle.
+  integer::c
+  if(warm_hold.and.pv_bg.and.preview_mode)then
+   call cancel_preview();return
+  end if
+  if(.not.warm_on.or.warm_hold.or.preview_mode)return
+  if(.not.pv_cached(0))then
+   call start_background(0);return
+  end if
+  do c=warm_next,51
+   if(.not.scenario_available(c))cycle
+   if(pv_cached(c))cycle
+   warm_next=c;call start_background(c);return
+  end do
+  warm_on=.false.
+ end subroutine
+! @nativefn NR2-M01-F0053
+ integer function cached_cases() result(n)
+  integer::c
+  n=0
+  do c=1,51
+   if(scenario_available(c).and.pv_cached(c))n=n+1
+  end do
+ end function
 ! @nativefn NR2-M01-F0046
  integer function selection_runs() result(n)
   integer::c

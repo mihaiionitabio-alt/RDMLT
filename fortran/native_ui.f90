@@ -11,6 +11,7 @@ module native_ui
  use native_codec, only: sha256_hex, deflate_fixed, zlen
  use native_references
  use native_anim
+use native_sys
  use native_theatre
  use native_structure, only: st_n,st_kind,st_count
  use native_scenarios
@@ -35,10 +36,11 @@ module native_ui
   'Hydrolysis probe and detector optics','Cq threshold analysis','Scenario identifiers, titles and kinds (51)', &
   'Scenario parameter labels and bounds','Scenario default parameter bank (51 x 6)','Native profile defaults', &
   'Run history store (32 runs)','CRC-32 lookup table','SHA-256 message digest','DEFLATE compressor (fixed Huffman, LZ77)', &
-  'ZIP and RDMLt export buffers','References and edition notes (150 entries)','Home and navigation', &
+  'ZIP and RDMLt export buffers','References and edition notes (151 entries)','Home and navigation', &
   'Virtual PCR acquisition view and charts','Results and curve selection','Scenario catalogue, animations, 4 structures', &
   'References page']
- integer,save::boot_next=1,boot_pending=0,boot_failed=0,ref_page=0
+ integer,save::boot_next=1,boot_pending=0,boot_failed=0,ref_page=0,boot_phase=0
+ real(c_double),save::boot_ready_ms=-1,boot_data_ms=0,boot_dt=0,mem_t=0
  real(c_double),save::boot_anim=0,boot_ms=0,boot_el(0:nboot)=0,host_ms=-1,host_mb=-1,boot_done_ms=0
  logical,save::booted=.false.
  real(c_double),save::anim_t=0,anim_acc=0
@@ -77,6 +79,19 @@ contains
    advance=advance+glyph_advance(g)*copies
   end do
  end subroutine
+! @nativefn NR2-M03-F0122
+ integer function label_width(s,scale) result(wpx)
+  ! Width in logical pixels of label(s,...,scale).
+  character(len=*),intent(in)::s
+  integer,intent(in)::scale
+  integer::i,code,step,adv,copies
+  adv=0;copies=scale*render_scale/2;i=1
+  do while(i<=len_trim(s))
+   call utf8_code(s,i,code,step);i=i+step
+   adv=adv+glyph_advance(glyph(code))*copies
+  end do
+  wpx=adv/render_scale
+ end function
 ! @nativefn NR2-M03-F0040
  subroutine utf8_code(s,i,code,step)
   ! Decodes one UTF-8 sequence at s(i:); malformed bytes are shown as single characters.
@@ -143,6 +158,7 @@ contains
 ! @nativefn NR2-M03-F0003
  subroutine draw_chart(r)
   type(run_t),intent(in)::r
+  type(curve_t)::lv
   real(c_double)::cfg(10),x(30000),y(30000),sty(40),mouse(3),sp(1),lo,hi,span,x0,x1,v
   integer(c_int32_t)::colors(26)
   integer(c_int)::starts(21),lab(64)
@@ -150,6 +166,7 @@ contains
   type(c_ptr)::p
   colors=orange;colors(1:6)=[bg,int(z'FF392A40',c_int32_t),purple,ink,cyan,panel]
   starts=0;sty=0;sty(1:39:2)=1.4d0;mouse=[mx,my,-1d100];sp=0;n=0;lab=0
+  lv=curves_of(r);if(running.and.r%serial==current%serial)lv=live_curves(r)
   if(graphmode/=1)then
    nc=r%nw;sty(2:40:2)=-1
    do w=1,nc
@@ -158,8 +175,8 @@ contains
      if(.not.result_visible(r,w))cycle
     end if
     do i=1,r%ncy
-     n=n+1;x(n)=i;y(n)=r%y(i,w)
-     if(graphmode==2)y(n)=r%y2(i,w)
+     n=n+1;x(n)=i;y(n)=lv%y(i,w)
+     if(graphmode==2)y(n)=lv%y2(i,w)
      if(y(n)<0.or.r%present(w)==0)y(n)=ieee_value(1d0,ieee_quiet_nan)
     end do
     colors(w+6)=orange
@@ -464,7 +481,7 @@ contains
   logical::live
   live=ui_busy()
   if(live)then
-   r=curves_of(current)
+   r=live_curves(current)
   else if(selected>0)then
    r=curves_of(history(selected))
   else
@@ -761,7 +778,7 @@ contains
   call soft_panel(x,y,w,h,12,panel)
   gx=x+56;gy=y+34;gw=w-76;gh=h-96;clip=[gx,gy-2,gx+gw,gy+gh+2]
   have_n=pv_code==p_scenario.and.pv_state>=2
-  have_f=pv_code==p_scenario.and.(pv_state==3.or.(pv_state==2.and.preview_mode))
+  have_f=pv_code==p_scenario.and.(pv_state==3.or.pv_state==4.or.(pv_state==2.and.preview_mode))
   stale=.false.
   if(pv_code==p_scenario.and.pv_state==3)stale=any(abs(pv_fault%params-scenario_bank(:,p_scenario))>1d-9)
   if(.not.scenario_available(p_scenario))then
@@ -773,6 +790,9 @@ contains
   else if(pv_state==2)then
    st='Fault: cycle '//trim(integer_text(current%ncy))//' / 45, real '//trim(clock_text(wall_run,.false.))// &
     ' (cycler '//trim(clock_text(current%elapsed,.true.))//')'
+  else if(pv_state==4)then
+   st='Fault: cycle '//trim(integer_text(replay_cycles()))//' / '//trim(integer_text(pv_fault%ncy))//', real '// &
+    trim(clock_text(replay_t,.false.))//' (precomputed at start-up)'
   else if(stale)then
    st='Settings changed: press Recompute curves.'
   else
@@ -791,7 +811,7 @@ contains
   end if
   lo=1d9;hi=-1d9
   call range_of(pv_norm,have_n);call range_of_f()
-  if(pv_code==p_scenario.and.pv_state==1.and.preview_mode)call range_of(curves_of(current),.true.)
+  if(pv_code==p_scenario.and.pv_state==1.and.preview_mode)call range_of(live_curves(current),.true.)
   if(hi<lo)then
    lo=0;hi=1000
   end if
@@ -806,17 +826,19 @@ contains
   call label(trim(integer_text(nint(lo))),x+6,nint(gy+gh)-14,ink,1)
   call label('cycle',nint(gx+gw)-40,nint(gy+gh)+24,purple,1)
   if(have_n.and.pv_show_norm)call curves(pv_norm,.true.)
-  if(pv_code==p_scenario.and.pv_state==1.and.preview_mode.and.pv_show_norm)call curves(curves_of(current),.true.)
+  if(pv_code==p_scenario.and.pv_state==1.and.preview_mode.and.pv_show_norm)call curves(live_curves(current),.true.)
   if(have_f.and.pv_show_fault)then
    if(pv_state==3)then
     call curves(pv_fault,.false.)
+   else if(pv_state==4)then
+    call curves(replayed(),.false.)
    else
-    call curves(curves_of(current),.false.)
+    call curves(live_curves(current),.false.)
    end if
   end if
   ! Cq summary
   s=pv_norm%ne*pv_norm%nr
-  if(have_n.and.pv_state==3)then
+  if(have_n.and.(pv_state==3.or.pv_state==4))then
    st='Mean sample Cq  normal '//trim(cq_text(mean_cq(pv_norm,1,s)))//'  fault '//trim(cq_text(mean_cq(pv_fault,1,s)))// &
     '   PC '//trim(cq_text(cqc(pv_norm,s+1)))//' / '//trim(cq_text(cqc(pv_fault,s+1)))// &
     '   NTC '//trim(cq_text(cqc(pv_norm,s+2)))//' / '//trim(cq_text(cqc(pv_fault,s+2)))// &
@@ -845,10 +867,10 @@ contains
   end subroutine
   subroutine range_of_f()
    if(.not.have_f)return
-   if(pv_state==3)then
+   if(pv_state==3.or.pv_state==4)then
     call range_of(pv_fault,.true.)
    else
-    call range_of(curves_of(current),.true.)
+    call range_of(live_curves(current),.true.)
    end if
   end subroutine
   subroutine curves(r,normal)
@@ -882,6 +904,16 @@ contains
    end do
   end subroutine
  end subroutine
+! @nativefn NR2-M03-F0116
+ integer function replay_cycles() result(n)
+  ! Cycles of a cached fault run revealed so far, at the pace of a real run.
+  n=min(pv_fault%ncy,max(1,ceiling(pv_fault%ncy*replay_t/max(1d0,last_full_elapsed/p_speed))))
+ end function
+! @nativefn NR2-M03-F0117
+ function replayed() result(c)
+  type(curve_t)::c
+  c=pv_fault;c%ncy=replay_cycles()
+ end function
 ! @nativefn NR2-M03-F0105
  real(c_double) function mean_cq(r,a,b) result(m)
   type(curve_t),intent(in)::r
@@ -1178,8 +1210,8 @@ contains
 ! @nativefn NR2-M03-F0055
  subroutine draw_boot()
   integer::x0,y0,ww,wh,k,stages,i,first,lines,lx,ly,lw,cx,cy,done,xr,wr,lg,stg
-  integer::nl,j
-  character(len=200)::rows(0:nboot+1)
+  integer::nl,j,ah
+  character(len=200)::rows(0:nboot+4)
   real(c_double)::sc,a0
   integer(c_int32_t)::seg(5),edge
   character(len=200)::txt
@@ -1198,27 +1230,17 @@ contains
   do stg=1,5
    if(done>=boot_last(stg))stages=stages+1
   end do
-  ! ring of five startup stages (geometry of the MISSY R2 startup dial)
-  sc=1.08d0;cx=x0+200;cy=y0+215
-  do k=1,5
-   a0=-86+72d0*(k-1)
-   if(k<=stages)then
-    call ring_segment(real(cx,c_double),real(cy,c_double),79*sc,108*sc,a0,a0+64,seg(k),1d0)
-   else
-    call ring_segment(real(cx,c_double),real(cy,c_double),79*sc,108*sc,a0,a0+64,seg(k),.25d0)
-   end if
-   call centred('0'//achar(48+k),cx+nint(93.5d0*sc*cos((a0+32)/57.29577951308232d0)), &
-    cy+nint(93.5d0*sc*sin((a0+32)/57.29577951308232d0))-9,rgba(9,9,9,255),1)
-  end do
-  call ring_segment(real(cx,c_double),real(cy,c_double),64*sc-.6d0,64*sc+.6d0,-180d0,180d0,rgba(104,76,112,255),1d0)
-  call centred('S T A R T U P',cx,cy-34,rgba(211,160,215,255),1)
-  call centred(achar(48+stages)//' / 5',cx,cy-4,rgba(245,163,85,255),2)
+  ! loading animation: PDB 8UCU fills the panel while data are prepared
+  call label('Startup stage '//achar(48+min(5,stages))//' / 5   |   PDB 8UCU: DNA polymerase on primer / template DNA', &
+   x0+400,y0+22,rgba(21,13,18,255),1)
+  ah=max(300,nint(wh*.50d0))
+  call molecule_stage(real(x0+40,c_double),real(y0+80,c_double),real(ww-80,c_double),real(ah,c_double),boot_anim/1000)
   ! instrument card: the MISSY logo is the entry control
-  xr=x0+400;wr=ww-440;lx=xr+(wr-320)/2;ly=y0+96
+  xr=x0+400;wr=ww-440;lx=x0+50;ly=y0+80+ah+14
   edge=rgba(103,209,216,255);if(booted.and.boot_failed==0)edge=rgba(240,160,94,255)
   if(booted.and.boot_failed==0)call button(90,0,'',lx,ly,320,112,.true.)
   call soft_panel(lx,ly,320,112,16,edge);call soft_panel(lx+3,ly+3,314,106,14,rgba(249,251,252,255))
-  call logo_dna(lx+58d0,ly+56d0,38d0,boot_anim*.09d0)
+  call molecule_icon(lx+58d0,ly+56d0,30d0,boot_anim/1000)
   do i=0,5
    a0=(60*i-90)/57.29577951308232d0
    call aa_line(lx+58+38*cos(a0),ly+56+38*sin(a0),lx+58+38*cos(a0+1.0471975511965976d0),ly+56+38*sin(a0+1.0471975511965976d0), &
@@ -1230,27 +1252,29 @@ contains
   if(boot_failed>0)then
    txt='Startup stopped: '//trim(boot_label(boot_failed))//' failed. Reload the page.'
   else if(booted)then
-   txt='Ready '//achar(226)//achar(128)//achar(148)//' click the MISSY logo or press Enter to enter.'
+   txt='Ready '//achar(226)//achar(128)//achar(148)//' entering; click the MISSY logo or press Enter to go now.'
+  else if(boot_next>nboot)then
+   txt='Preparing data: normal reference run (full model), cycle '//trim(integer_text(current%ncy))//' / 45'
   else
    txt='Loading the Fortran edition '//achar(194)//achar(183)//' component '//trim(integer_text(min(nboot,done+1)))//' of '// &
     trim(integer_text(nboot))
   end if
-  call label(txt,xr,y0+232,ink,1)
-  call rectangle(xr,y0+268,wr,6,rgba(42,31,49,255))
-  lg=nint(wr*real(done,c_double)/nboot)
+  call label(txt,xr,ly+6,ink,1)
+  call rectangle(xr,ly+40,wr,6,rgba(42,31,49,255))
+  lg=nint(wr*real(done+merge(1,0,pv_cached(0)),c_double)/(nboot+1))
   do i=0,lg-1
-   call rectangle(xr+i,y0+268,1,6,rgba(240-nint(39d0*i/max(1,wr)),160-nint(6d0*i/max(1,wr)),94+nint(113d0*i/max(1,wr)),255))
+   call rectangle(xr+i,ly+40,1,6,rgba(240-nint(39d0*i/max(1,wr)),160-nint(6d0*i/max(1,wr)),94+nint(113d0*i/max(1,wr)),255))
   end do
   call label('Embedded Fortran components: display, numerical models, scenario catalogue, records and export, interface.', &
-   xr,y0+296,purple,1)
-  if(host_ms>=0)call label('WebAssembly module compiled and instantiated by the browser in '//trim(real_text(host_ms,1))//' ms.',xr,y0+326,purple,1)
+   xr,ly+60,purple,1)
+  if(host_ms>=0)call label('WebAssembly module compiled and instantiated by the browser in '//trim(real_text(host_ms,1))//' ms.',xr,ly+84,purple,1)
   ! boot log
   ! Boot log starts below the dial and the status block, whichever is lower (no overlap at any size).
-  lx=x0+50;lw=ww-90;ly=max(y0+410,cy+nint(108*sc)+78)
+  lx=x0+50;lw=ww-90;ly=y0+80+ah+178
   call label('B O O T   L O G   /   E M B E D D E D   C O M P O N E N T S',lx,ly-46,rgba(199,154,199,255),1)
   call label('Component loading '//achar(226)//achar(128)//achar(148)//' three known-answer checks (CRC-32, SHA-256, DEFLATE). '// &
    'Times: elapsed startup (+ since previous component).',lx,ly-22,rgba(214,190,226,255),1)
-  lines=max(6,(wh-(ly-y0)-150)/22)
+  lines=max(3,(wh-(ly-y0)-80)/22)
   call soft_panel(lx,ly,lw,lines*22+20,12,rgba(104,76,112,255));call soft_panel(lx+2,ly+2,lw-4,lines*22+16,10,rgba(11,9,15,255))
    nl=0
    if(host_ms>=0)then
@@ -1261,8 +1285,15 @@ contains
     if(boot_el(k)<=0.and.boot_failed/=k)cycle
     rows(nl)=boot_line(k);nl=nl+1
    end do
+   if(boot_phase>0)then
+    rows(nl)='[LOADED] '//achar(194)//achar(183)//' Theatre caches: 4 structures, simulation states';nl=nl+1
+   end if
+   if(pv_cached(0))then
+    rows(nl)='[LOADED] '//achar(194)//achar(183)//' Normal reference run, full model, 45 cycles '//achar(194)//achar(183)//' '// &
+     trim(real_text(boot_done_ms-boot_data_ms,0))//' ms';nl=nl+1
+   end if
    if(booted.and.boot_failed==0)then
-    rows(nl)='[READY] Initialization complete. No experiment files read during startup.';nl=nl+1
+    rows(nl)='[READY] Initialization complete. Case curves continue in the background.';nl=nl+1
    end if
    first=max(0,nl-lines)
    do j=first,nl-1
@@ -1385,9 +1416,9 @@ contains
   integer::v,cw,shown_cycle,i
   real(c_double)::a0,a1,b0,b1,clipmark(4)
   nb=0
-  if(page/=7.and.preview_mode)call cancel_preview()
+  if(page/=7.and.preview_mode.and..not.pv_bg)call cancel_preview()   ! background cache runs continue
   if(page==-1)then
-   call allocate_frame(width,height,bg);call draw_boot()
+   call allocate_frame(width,height,bg);call draw_boot();call draw_memory_stats()
    ptr=c_loc(pixels(1));dirty=.false.;return
   end if
   if(page==9)then
@@ -1408,6 +1439,7 @@ contains
    call button(71,0,'Next',width-360,16,130,42,.true.)
    call button(74,0,'Home',width-220,16,190,42,.true.)
    call draw_theatre_scene(theatre_k,16d0,78d0,real(width-32,c_double),real(height-90,c_double),theatre_t,theatre_dt)
+   call draw_memory_stats()
    ptr=c_loc(pixels(1));dirty=.false.;return
   end if
   shown_cycle=current%ncy
@@ -1432,7 +1464,7 @@ contains
   call rectangle(500,32,40,10,cyan)
   call button(1,0,'Home / Go back',width-200,32,170,42,.true.)
   if(page==0)then
-   call anim_helix_banner(60d0,real(width-460,c_double),205d0,25d0,anim_t)
+   call molecule_banner(60d0,122d0,real(width-520,c_double),172d0,anim_t)
    call soft_panel(width-400,180,340,18,9,purple)
    call soft_panel(width-310,210,250,18,9,orange)
    cw=(width-160)/3
@@ -1447,14 +1479,19 @@ contains
    call home_card(5,'Configure profile','Set batches, DNA design and analysis',4,60,435,cw,.not.ui_busy(),purple)
    call home_card(13,'Load files','Open a profile or native RDMLt record',5,80+cw,435,cw,.not.ui_busy(),orange)
    call home_card(6,'References','Sources, standards, libraries and notes',6,100+2*cw,435,cw,.true.,purple)
-   call home_card(73,'Animation theatre','Eight full-screen scenes: 3-D instrument, DNA, circuits, heat, optics, fluid, '// &
-    'enzymes, amplification surface',7,60,570,3*cw+40,.true.,orange)
+   call home_card(73,'Animation theatre','Nine full-screen scenes: 3-D instrument, DNA, circuits, heat, optics, fluid, '// &
+    'enzymes, amplification surface, molecular zoom',7,60,570,3*cw+40,.true.,orange)
    if(selection_runs()>0)then
     call label('Selection: '//trim(integer_text(selection_runs()))//' run(s) from the qPCR scenarios page (card 03)',60,700,cyan,1)
    else if(p_scenario==0)then
     call label('Scenario: normal run. Tick cards on the qPCR scenarios page to queue several cases.',60,700,cyan,1)
    else
     call label('Scenario: '//trim(scenario_ids(p_scenario)),60,700,cyan,1)
+   end if
+   if(warm_on.or.pv_bg)then
+    call label('Preparing case curves in the background: '//trim(integer_text(cached_cases()))//' / 50',60,770,purple,1)
+   else if(pv_cached(0))then
+    call label('Case curves ready: '//trim(integer_text(cached_cases()))//' / 50 precomputed',60,770,purple,1)
    end if
    if(.not.scenario_available(p_scenario))call label('Melt acquisition is unavailable. Select another scenario or Normal virtual PCR.',60,735,orange,1)
   else if(page==1)then
@@ -1500,7 +1537,40 @@ contains
    call button(40,0,'Download all RDMLt (ZIP)',width-600,132,280,36,nh>0.and..not.ui_busy().and.remaining==0)
    call button(11,0,'Download selected RDMLt',width-300,132,260,36,selected>0)
   end if
+  call draw_memory_stats()
   ptr=c_loc(pixels(1));dirty=.false.
+ end function
+! @nativefn NR2-M03-F0120
+ subroutine draw_memory_stats()
+  ! Always-on memory panel, bottom right of every page. Sampled once a second (native_tick).
+  character(len=120)::l1,l2
+  integer::bw,bx,by
+  if(sys_native)then
+   l1='Memory: native test build';l2='(no browser figures)'
+  else
+   l1='Memory  app heap '//trim(mb_text(sys_heap_mb))//'   JS heap '//trim(mb_text(sys_js_used_mb))
+   if(sys_js_limit_mb>0)l1=trim(l1)//' / '//trim(mb_text(sys_js_limit_mb))
+   l2='Device RAM (browser estimate) '//trim(mb_text(sys_device_mb))
+  end if
+  bw=max(label_width(trim(l1),1),label_width(trim(l2),1))+24
+  bx=width-bw-10;by=height-58
+  call soft_panel(bx,by,bw,50,8,rgba(24,16,30,235))
+  call label(trim(l1),bx+12,by+6,cyan,1)
+  call label(trim(l2),bx+12,by+27,ink,1)
+ end subroutine
+! @nativefn NR2-M03-F0121
+ function mb_text(m) result(t)
+  integer,intent(in)::m
+  character(len=24)::t
+  if(m<0)then
+   t='n/a'
+  else if(m>=10240)then
+   t=trim(integer_text(nint(m/1024d0)))//' GB'
+  else if(m>=1024)then
+   t=trim(integer_text(m/1024))//'.'//trim(integer_text(mod(m*10/1024,10)))//' GB'
+  else
+   t=trim(integer_text(m))//' MB'
+  end if
  end function
 ! @nativefn NR2-M03-F0010
  subroutine change_field(i,d)
@@ -1617,7 +1687,9 @@ contains
   case(54)
    if(.not.ui_busy())sel_n=0
   case(57)
-   if(.not.ui_busy().and.p_scenario>0)call start_preview(p_scenario)
+   if(.not.ui_busy().and.p_scenario>0)then
+    pv_force=.true.;call start_preview(p_scenario)
+   end if
   case(58)
    pv_channel=3-pv_channel
   case(59)
@@ -1795,6 +1867,10 @@ contains
   real(c_double),value::ms
   logical::was_running
   was_running=running
+  mem_t=mem_t+max(0d0,min(10000d0,ms))
+  if(mem_t>=1000.or.sys_heap_mb<0)then
+   mem_t=0;call sys_sample();dirty=.true.
+  end if
   if(page==-1)then
    ! The startup screen animates the logo helix, so it redraws every frame until entry.
    boot_anim=boot_anim+max(0d0,min(100d0,ms));dirty=.true.
@@ -1811,10 +1887,26 @@ contains
     end if
     boot_next=boot_next+1;dirty=.true.
    else if(boot_failed==0.and..not.booted)then
-    booted=.true.;boot_done_ms=boot_ms;dirty=.true.
+    ! data stage: theatre caches, then the normal reference run with the full model
+    if(boot_phase==0)then
+     call theatre_warm();call start_background(0);boot_phase=1;boot_data_ms=boot_ms
+    else if(pv_cached(0))then
+     booted=.true.;boot_done_ms=boot_ms;boot_ready_ms=boot_ms;warm_on=.true.;dirty=.true.
+    else if(.not.preview_mode)then
+     call start_background(0)
+    end if
+   else if(booted.and.boot_failed==0.and.boot_ready_ms>=0.and.boot_ms-boot_ready_ms>1800)then
+    page=0;dirty=.true.
    end if
+   boot_dt=max(0d0,min(100d0,ms))/1000
   end if
   anim_t=anim_t+max(0d0,min(200d0,ms))/1000
+  warm_hold=page==1.or.page==7
+  if(page==7.and.pv_state==4)then
+   replay_t=replay_t+max(0d0,min(200d0,ms))/1000
+   if(replay_t>=last_full_elapsed/p_speed)pv_state=3
+   dirty=.true.
+  end if
   theatre_dt=0
   if(page==9.and..not.theatre_pause)then
    theatre_dt=max(0d0,min(100d0,ms))/1000;theatre_t=theatre_t+theatre_dt

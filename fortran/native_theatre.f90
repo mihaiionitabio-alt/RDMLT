@@ -18,7 +18,7 @@ module native_theatre
  use native_structure
  implicit none
  private
- public :: nscene, theatre_title, draw_theatre_scene, theatre_reset, show_tags
+ public :: nscene, theatre_title, draw_theatre_scene, theatre_reset, show_tags, theatre_warm, molecule_banner, molecule_icon, molecule_stage
  logical,save :: show_tags=.false.
  integer,parameter :: nscene=9
  real(c_double),parameter :: pi=3.141592653589793d0
@@ -32,6 +32,8 @@ module native_theatre
  integer,save :: zx0,zy0,zw=0,zh=0
  ! ---- simulation states
  logical,save :: md_init=.false.,sph_init=.false.,heat_init=.false.,enz_init=.false.,opt_init=.false.
+ logical,save :: dna_ready=.false.
+ real(c_double),save :: dna_c(3)=0,dna_dir(3)=0,dna_perp(3)=0
  integer,parameter :: nmd=110
  real(c_double),save :: mdx(3,nmd),mdv(3,nmd),mdf(3,nmd)
  integer,parameter :: nsph=360
@@ -565,9 +567,9 @@ contains
   real(c_double),intent(in)::x,y,w,h,t,dt
   integer,parameter::nbp=20
   character(len=nbp),parameter::sq='ACGTTGCAGGTCAGTCAAGC'
-  real(c_double)::tl,tc,fm,sep,th,za,pa(3),pb(3),ba(3),bb(3),ext,polx,ann,tm,kin,px,yy
+  real(c_double)::tl,tc,fm,sep,ext,ann,tm,kin,px,yy,amp,p0(3),rr
   integer::i,k
-  integer(c_int32_t)::cb1,cb2
+  integer(c_int32_t)::cb1
   character(len=32)::stage
   tl=mod(t,24d0)
   if(tl<4)then
@@ -581,42 +583,46 @@ contains
   end if
   tm=example_tm()
   fm=1/(1+exp((tm-tc)/1.8d0))           ! melted fraction, two-state
-  sep=fm;if(tl>=13)sep=fm
+  sep=fm;if(tl>=13)sep=0   ! at 72 C the primer is held by the polymerase while it extends
   ann=0;if(tl>=10)ann=min(1d0,(tl-10)/2)
   ext=0;if(tl>=13)ext=min(1d0,(tl-13)/9)
   call panel(x,y,w,h);call box(x+1,y+1,w-2,h-2,rgba(14,10,18,255))
-  call view_begin(x,y,w-300,h,.5d0+t*.25d0,-.15d0,120d0,1.0d0)
+  call view_begin(x,y,w-300,h,.5d0+t*.25d0,-.15d0,merge(140d0,95d0,tl>=13),1.0d0)
   ! MD solvent particles (dNTPs) first so the DNA is drawn in front where closer
   call md_step(tc,dt)
   do i=1,nmd
    call zsphere(mdx(:,i),.8d0,rgba(200,130,80,255))
   end do
-  do i=0,nbp-1
-   th=i*36d0*pi/180+t*.0d0;za=(i-(nbp-1)/2d0)*3.4d0
-   pa=[9*cos(th),za,9*sin(th)]
-   pa=pa-sep*[0d0,0d0,9d0]
-   pb=[9*cos(th+2.6d0),za,9*sin(th+2.6d0)]+sep*[0d0,0d0,15d0]
-   ba=[4*cos(th+.5d0),za,4*sin(th+.5d0)]-sep*[0d0,0d0,9d0]
-   bb=[4*cos(th+2.1d0),za,4*sin(th+2.1d0)]+sep*[0d0,0d0,15d0]
-   cb1=base_col(sq(i+1:i+1));cb2=base_col(comp(sq(i+1:i+1)))
-   call zsphere(pa,1.9d0,rgba(200,150,215,255));call zsphere(pb,1.9d0,rgba(90,200,210,255))
-   call zline(pa,ba,cb1,2.2d0);call zline(pb,bb,cb2,2.2d0)
-   call zsphere(ba,1.4d0,cb1);call zsphere(bb,1.4d0,cb2)
-   if(sep<.25d0)call zline(ba,bb,rgba(240,240,250,255),1.2d0)
-   if(i>0)then
-    call zline(pa,[9*cos(th-36*pi/180),za-3.4d0,9*sin(th-36*pi/180)]-sep*[0d0,0d0,9d0],rgba(200,150,215,255),2d0)
-    call zline(pb,[9*cos(th-36*pi/180+2.6d0),za-3.4d0,9*sin(th-36*pi/180+2.6d0)]+sep*[0d0,0d0,15d0],rgba(90,200,210,255),2d0)
-   end if
-   ! primer annealing on strand A (first 6 nt) and extension along the strand
-   if(ann>0.and.sep>.5d0.and.(i<6.or.real(i,c_double)<6+ext*(nbp-6)))then
-    call zsphere([4.5d0*cos(th+.5d0)+ (1-ann)*25,za,4.5d0*sin(th+.5d0)-6],1.6d0,merge(c_orange,rgba(255,200,120,255),i<6))
-   end if
+  ! Real coordinates (PDB 8UCU): template strand (kind 3), primer strand with its terminal ddC
+  ! (kinds 4, 6), incoming dGTP (5), Mg2+ (7) and the polymerase C-alpha trace (1, 2).
+  ! Melting moves the primer strand away from the template along the line joining the two
+  ! strand centres (melted fraction from the two-state model); every atom also jiggles with
+  ! an amplitude that grows with temperature. At 72 C the polymerase is shown in its crystal
+  ! position and the dGTP diffuses into the active site.
+  if(.not.dna_ready)call dna_frame()
+  amp=.25d0*sqrt((tc+273.15d0)/333.15d0)*(1+4*fm)
+  do i=st_first(1),st_last(1)
+   k=st_kind(i)
+   p0=st_xyz(:,i)/10d0-dna_c
+   select case(k)
+   case(3)
+    p0=p0-8*sep*dna_dir;rr=1.25d0;cb1=rgba(90,200,210,255)
+   case(4,6)
+    p0=p0+30*sep*dna_dir;rr=1.25d0;cb1=rgba(255,150,200,255);if(k==6)cb1=c_yellow
+   case(5)
+    if(tl<13)cycle
+    p0=p0+(1-ext)*(36*dna_perp+10*dna_dir);rr=1.35d0;cb1=c_green
+   case(7)
+    if(tl<13)cycle
+    rr=1.6d0;cb1=rgba(255,80,255,255)
+   case default
+    if(tl<13)cycle
+    rr=1.9d0;cb1=mix(rgba(150,110,200,255),rgba(90,150,255,255),real(i-st_first(1),c_double)/(st_last(1)-st_first(1)))
+    if(k==2)cb1=c_orange
+   end select
+   p0=p0+amp*[sin(i*1.73d0+t*9.1d0),sin(i*2.31d0+t*8.3d0),sin(i*3.07d0+t*7.7d0)]
+   call zsphere(p0,rr,cb1)
   end do
-  ! polymerase: coarse sphere cluster from the 8UCU C-alpha trace (every 6th atom, scaled)
-  if(tl>=13)then
-   polx=-(nbp-1)/2d0*3.4d0+(6+ext*(nbp-6))*3.4d0
-   call draw_molecule(1,[16d0,polx,-10d0],.32d0,qaxis([0d0,1d0,0d0],t*.3d0),.false.,.3d0)
-  end if
   ! panel
   kin=0
   do i=1,nmd
@@ -624,47 +630,41 @@ contains
   end do
   px=x+w-290;call set_clip(0d0,0d0,1d4,1d4)
   call box(px,y+10,280d0,h-20,rgba(24,15,23,255));call frame_rect(px,y+10,280d0,h-20,c_purple,1d0)
-  call txt('20 bp duplex, B-DNA geometry',px+12,y+22,c_orange)
+  call txt('Primer / template DNA, PDB 8UCU',px+12,y+22,c_orange)
   call txt(trim(stage),px+12,y+50,c_cyan)
   call txt('Temperature '//trim(num(tc,1))//' C',px+12,y+78,c_ink)
-  call txt('Duplex Tm   '//trim(num(tm,1))//' C (nearest-neighbour)',px+12,y+102,c_ink)
+  call txt('Example Tm  '//trim(num(tm,1))//' C (nearest-neighbour)',px+12,y+102,c_ink)
   call txt('Melted      '//trim(num(100*fm,0))//' % (two-state)',px+12,y+126,c_ink)
   call txt('dNTP kinetic energy '//trim(num(kin/nmd,2)),px+12,y+150,c_ink)
   call txt('(scales with absolute temperature)',px+12,y+170,c_purple)
   yy=y+210
-  call txt('Colours: A green, T red, G yellow,',px+12,yy,c_ink);call txt('C blue; backbones violet / cyan;',px+12,yy+20,c_ink)
-  call txt('primer orange, new strand amber,',px+12,yy+40,c_ink);call txt('polymerase: PDB 8UCU (all C-alpha).',px+12,yy+60,c_ink)
+  call txt('Atoms from the crystal structure:',px+12,yy,c_ink);call txt('template cyan, primer pink, ddC yellow,',px+12,yy+20,c_ink)
+  call txt('dGTP green, Mg2+ magenta, polymerase',px+12,yy+40,c_ink);call txt('C-alpha violet / blue (interface orange).',px+12,yy+60,c_ink)
   call txt('MD: velocity Verlet, soft repulsion,',px+12,y+h-80,c_ink);call txt('Langevin thermostat at the set T.',px+12,y+h-60,c_ink)
   call txt('Illustration, not to scale in time.',px+12,y+h-36,c_orange)
- contains
-  function comp(b) result(c)
-   character,intent(in)::b
-   character::c
-   select case(b)
-   case('A')
-    c='T'
-   case('T')
-    c='A'
-   case('G')
-    c='C'
-   case default
-    c='G'
+ end subroutine
+! @nativefn NR2-THE-F0143
+ subroutine dna_frame()
+  ! Centre of the 8UCU nucleic acids, unit vector from the template to the primer centre
+  ! (direction in which the strands separate) and a perpendicular for the dGTP approach.
+  real(c_double)::c3(3),c4(3),cn(3),v(3)
+  integer::i,n3,n4,nn
+  c3=0;c4=0;cn=0;n3=0;n4=0;nn=0
+  do i=st_first(1),st_last(1)
+   select case(st_kind(i))
+   case(3)
+    c3=c3+st_xyz(:,i)/10d0;n3=n3+1
+   case(4,6)
+    c4=c4+st_xyz(:,i)/10d0;n4=n4+1
    end select
-  end function
-  function base_col(b) result(c)
-   character,intent(in)::b
-   integer(c_int32_t)::c
-   select case(b)
-   case('A')
-    c=rgba(90,220,110,255)
-   case('T')
-    c=rgba(235,80,80,255)
-   case('G')
-    c=rgba(250,210,70,255)
-   case default
-    c=rgba(90,140,255,255)
-   end select
-  end function
+   if(st_kind(i)>=3.and.st_kind(i)<=7)then
+    cn=cn+st_xyz(:,i)/10d0;nn=nn+1
+   end if
+  end do
+  c3=c3/max(1,n3);c4=c4/max(1,n4);dna_c=cn/max(1,nn)
+  v=c4-c3;dna_dir=v/max(1d-9,sqrt(sum(v*v)))
+  v=[dna_dir(2),-dna_dir(1),0d0];if(sum(v*v)<1d-6)v=[0d0,dna_dir(3),-dna_dir(2)]
+  dna_perp=v/sqrt(sum(v*v));dna_ready=.true.
  end subroutine
 ! @nativefn NR2-THE-F0051
  subroutine md_step(tc,dt)
@@ -1616,7 +1616,7 @@ contains
   else if(nh>0)then
    r=curves_of(history(nh));src='last filed run'
   else if(running)then
-   r=curves_of(current);src='run in progress'
+   r=live_curves(current);src='run in progress'
   end if
   nw=0;nc=r%ncy
   do j=1,r%nw
@@ -1768,15 +1768,95 @@ contains
   ! Mean position (angstrom) of the atoms of one kind in structure si.
   integer,intent(in)::si,kd
   real(c_double)::c(3)
+  real(c_double),save::kc(3,9,8)=0
+  logical,save::kok(9,8)=.false.
   integer::i,n
+  if(kok(kd,si))then
+   c=kc(:,kd,si);return
+  end if
   c=0;n=0
   do i=st_first(si),st_last(si)
    if(st_kind(i)==kd.or.(kd==1.and.st_kind(i)==2))then
     c=c+st_xyz(:,i)/10d0;n=n+1
    end if
   end do
-  c=c/max(1,n)
+  c=c/max(1,n);kc(:,kd,si)=c;kok(kd,si)=.true.
  end function
+! @nativefn NR2-THE-F0140
+ subroutine molecule_banner(x,y,w,h,t)
+  ! Home-page banner: the four PDB structures carried by native_structure (real atomic
+  ! coordinates, not a drawn helix), each turning slowly in its own depth-buffered view.
+  ! Protein as C-alpha spheres, DNA strands as heavy atoms; PDB code in small print below.
+  real(c_double),intent(in)::x,y,w,h,t
+  character(len=4),parameter::ids(4)=['8UCU','1RFF','1A3Q','1RM1']
+  real(c_double),save::rad(4)=0
+  real(c_double)::cw,cx,g(3),d,ah
+  integer::si,i,n
+  if(rad(1)<=0)then
+   do si=1,st_count
+    g=0;n=0
+    do i=st_first(si),st_last(si)
+     g=g+st_xyz(:,i)/10d0;n=n+1
+    end do
+    g=g/max(1,n);d=0
+    do i=st_first(si),st_last(si)
+     d=max(d,sqrt(sum((st_xyz(:,i)/10d0-g)**2)))
+    end do
+    rad(si)=d
+   end do
+  end if
+  cw=w/st_count;ah=h-18
+  do si=1,st_count
+   cx=x+(si-1)*cw
+   call view_begin(cx+4,y,cw-8,ah,.35d0*t+1.6d0*si,-.18d0+.08d0*sin(.3d0*t+si),rad(si)/.53d0,1.0d0)
+   call draw_molecule(si,[0d0,0d0,0d0],1d0,[1d0,0d0,0d0,0d0],.false.,0d0)
+   call set_clip(0d0,0d0,1d4,1d4)
+   call txt(ids(si),cx+cw/2-14,y+ah+2,rgba(150,135,170,255))
+  end do
+ end subroutine
+! @nativefn NR2-THE-F0141
+ subroutine molecule_icon(cx,cy,r,t)
+  ! Logo mark: the template / primer DNA of PDB 8UCU with its incoming dGTP and Mg2+
+  ! (real coordinates), turning inside a square of half-width r.
+  real(c_double),intent(in)::cx,cy,r,t
+  call view_begin(cx-r,cy-r,2*r,2*r,.6d0*t,-.2d0,62d0,1.0d0)
+  call draw_molecule(1,[0d0,0d0,0d0],1d0,[1d0,0d0,0d0,0d0],.true.,0d0)
+  call set_clip(0d0,0d0,1d4,1d4)
+ end subroutine
+! @nativefn NR2-THE-F0142
+ subroutine molecule_stage(x,y,w,h,t)
+  ! Start-up screen: PDB 8UCU (DNA polymerase on primer / template DNA with the incoming dGTP
+  ! and Mg2+) filling the whole panel. The camera turns round the complex and moves in on the
+  ! active site and back over a 20 s loop. Nothing is drawn over the molecule.
+  real(c_double),intent(in)::x,y,w,h,t
+  real(c_double)::u,g(3),act(3),tg(3),dd
+  integer::k
+  call set_clip(x,y,x+w,y+h);call box(x,y,w,h,rgba(12,8,16,255))
+  u=.5d0-.5d0*cos(2*pi*mod(t,20d0)/20)
+  do k=1,3
+   g(k)=sum(st_xyz(k,st_first(1):st_last(1)))/(10d0*(st_last(1)-st_first(1)+1))
+  end do
+  act=kind_centre(1,5);tg=(act-g)*u;dd=108*(1-.45d0*u)
+  call view_begin(x,y,w,h,t*.25d0,-.22d0,dd,1.0d0)
+  call draw_molecule(1,-tg,1d0,[1d0,0d0,0d0,0d0],.false.,.35d0)
+  call set_clip(0d0,0d0,1d4,1d4)
+ end subroutine
+! @nativefn NR2-THE-F0134
+ subroutine theatre_warm()
+  ! Start-up: structure centres for every structure and kind, and the simulation states.
+  integer::si,kd
+  real(c_double)::c(3)
+  do si=1,st_count
+   do kd=1,9
+    c=kind_centre(si,kd)
+   end do
+  end do
+  if(.not.md_init)call md_step(60d0,0d0)
+  if(.not.heat_init)call heat_setup()
+  if(.not.sph_init)call sph_init_state()
+  if(.not.enz_init)call enz_setup()
+  if(c(1)>1d30)continue
+ end subroutine
 ! @nativefn NR2-THE-F0133
  subroutine scene_zoom(x,y,w,h,t)
   ! One continuous zoom (36 s): the tube (millimetres), the liquid crowded with complexes, one
