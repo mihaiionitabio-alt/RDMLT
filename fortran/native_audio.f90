@@ -12,7 +12,7 @@ module native_audio
  use native_sys
  implicit none
  private
- public :: au_on, voice_on, play_cue, speak, cue_index, cue_phrase, last_cue, cues_played
+ public :: au_on, voice_on, play_cue, play_tone, speak, say_calm, load_calm, cue_index, cue_phrase, last_cue, cues_played
  logical,save :: au_on=.true.,voice_on=.true.
  integer,save :: last_cue=0,cues_played=0
  integer,parameter :: srate=22050,maxs=40000
@@ -44,6 +44,22 @@ contains
  subroutine play_cue(id)
   character(len=*),intent(in)::id
   integer::k,n
+  logical::said
+  if(.not.au_on)return
+  k=cue_index(id);if(k==0)return
+  call render(k,n)
+  if(n<=0)return
+  call to_wav(n)
+  call send_wav(44+2*n)
+  last_cue=k;cues_played=cues_played+1
+  ! as in MISSY: the cue tone, then its phrase in the Calm v1 voice once the tone has ended
+  if(k<=99)said=say_calm(trim(au_en(k)),nint(1000d0*n/srate),.true.)   ! cues 1-99 have a phrase
+ end subroutine
+! @nativefn NR2-AUD-F0003B
+ subroutine play_tone(id)
+  ! The cue tone alone (used when a longer description is spoken right after it).
+  character(len=*),intent(in)::id
+  integer::k,n
   if(.not.au_on)return
   k=cue_index(id);if(k==0)return
   call render(k,n)
@@ -52,6 +68,60 @@ contains
   call send_wav(44+2*n)
   last_cue=k;cues_played=cues_played+1
  end subroutine
+! @nativefn NR2-AUD-F0003C
+ subroutine load_calm()
+  ! Loads the MISSY Calm v1 phrases (missy-calm-v1.txt beside the page: phrase, tab, base64 MP3)
+  ! once at start-up, in the background.
+  call sys_script("(function(){if(window.__calmLoading)return;window.__calmLoading=1;"// &
+   "fetch('missy-calm-v1.txt').then(function(r){return r.ok?r.text():''}).then(function(t){var m={};"// &
+   "t.split('\n').forEach(function(l){var i=l.indexOf('\t');if(i>0&&l.charAt(0)!=='#')m[l.slice(0,i)]=l.slice(i+1)});"// &
+   "window.__calm=m}).catch(function(){})})()")
+ end subroutine
+! @nativefn NR2-AUD-F0003D
+ logical function say_calm(text,delay_ms,interrupt) result(done)
+  ! MISSY voice: the recorded Calm v1 phrase when the text is one of them, otherwise the browser's
+  ! local English voice chosen as in MISSY (Microsoft Zira when installed, else the first local
+  ! English voice), rate 0.9, pitch 1, volume 0.8, "Cq" read as "threshold cycle".
+  ! interrupt=.true. replaces anything being said (after delay_ms); otherwise the phrase is
+  ! dropped while another is still being spoken.
+  character(len=*),intent(in)::text
+  integer,intent(in)::delay_ms
+  logical,intent(in)::interrupt
+  character(len=400)::t
+  character(len=2400)::cmd
+  integer::i,n
+  done=.false.
+  if(.not.voice_on.or.len_trim(text)==0)return
+  done=.true.
+  t='';n=0
+  do i=1,min(len_trim(text),390)
+   if(text(i:i)=="'".or.text(i:i)=='\'.or.iachar(text(i:i))<32)then
+    n=n+1;t(n:n)=' '
+   else
+    n=n+1;t(n:n)=text(i:i)
+   end if
+  end do
+  cmd="(function(){try{var T='"//t(1:n)//"',S=window.speechSynthesis;"// &
+   "function busy(){var c=window.__mcalm;return (c&&!c.paused&&!c.ended)||(S&&(S.speaking||S.pending))}"// &
+   "function go(){var d=window.__calm&&window.__calm[T];"// &
+   "if(d){var a=new Audio('data:audio/mpeg;base64,'+d);a.volume=.8;window.__mcalm=a;a.play().catch(function(){});return}"// &
+   "if(!S)return;var vs=S.getVoices().filter(function(v){return v.localService&&v.lang.toLowerCase().indexOf('en')===0});"// &
+   "var v=vs.filter(function(v){return /zira/i.test(v.name||v.voiceURI)})[0]||vs[0];"// &
+   "var m=new SpeechSynthesisUtterance(T.replace(/\bCq\b/gi,'threshold cycle'));"// &
+   "if(v){m.voice=v;m.lang=v.lang}else{m.lang='en-US'}m.rate=.9;m.pitch=1;m.volume=.8;S.speak(m)}"
+  if(interrupt)then
+   cmd=trim(cmd)//"var g=window.__mcg=(window.__mcg||0)+1;setTimeout(function(){if(g!==window.__mcg)return;"// &
+    "if(window.__mcalm)window.__mcalm.pause();if(S)S.cancel();go()},"//trim(itxt(delay_ms))//")}catch(e){}})()"
+  else
+   cmd=trim(cmd)//"if(busy())return;go()}catch(e){}})()"
+  end if
+  call sys_script(trim(cmd))
+ end function
+ function itxt(v) result(t)
+  integer,intent(in)::v
+  character(len=12)::t
+  write(t,'(i0)')max(0,v)
+ end function
 ! @nativefn NR2-AUD-F0004
  subroutine render(k,n)
   ! Mixes the notes of cue k into mixb(1:n) (floating point, -1..1).
@@ -192,28 +262,10 @@ contains
  end subroutine
 ! @nativefn NR2-AUD-F0007
  subroutine speak(text,interrupt)
-  ! Browser speech synthesis (English). interrupt=.true. replaces anything being said; otherwise
-  ! the phrase is dropped while another is still being spoken, so run reports never queue up.
+  ! Spoken text in the MISSY voice (see say_calm).
   character(len=*),intent(in)::text
   logical,intent(in)::interrupt
-  character(len=400)::t
-  character(len=900)::cmd
-  integer::i,n
-  if(.not.voice_on.or.len_trim(text)==0)return
-  t='';n=0
-  do i=1,min(len_trim(text),390)
-   if(text(i:i)=="'".or.text(i:i)=='\'.or.iachar(text(i:i))<32)then
-    n=n+1;t(n:n)=' '
-   else
-    n=n+1;t(n:n)=text(i:i)
-   end if
-  end do
-  if(interrupt)then
-   cmd="(function(){try{var S=window.speechSynthesis;if(!S)return;S.cancel();"
-  else
-   cmd="(function(){try{var S=window.speechSynthesis;if(!S||S.speaking||S.pending)return;"
-  end if
-  cmd=trim(cmd)//"var m=new SpeechSynthesisUtterance('"//t(1:n)//"');m.lang='en-US';m.rate=1.0;S.speak(m)}catch(e){}})()"
-  call sys_script(trim(cmd))
+  logical::said
+  said=say_calm(text,0,interrupt)
  end subroutine
 end module native_audio

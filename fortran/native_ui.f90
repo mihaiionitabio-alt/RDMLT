@@ -30,6 +30,10 @@ use native_audio
  integer,save::width=1280,height=820,page=-2,graphmode=0,catalog_page=0,edit_param=0,nb=0,buttons(7,200)=0,request=0
  character(len=24),save::edit_buffer=''
  logical,save::show_group(5,maxruns)=.true.,show_name(maxw,maxruns)=.true.
+ ! Voice commands as in MISSY: wake word "Computer", then a command from a short grammar.
+ logical,save::vc_on=.false.,vc_alert=.false.
+ character(len=200),save::vc_buf='',vc_heard='',vc_reply=''
+ integer,save::vc_n=0,vc_pack=0     ! English pack: 0 not checked 1 checking 2 downloading 3 ready 4 not offered 5 failed
  logical,save::dirty=.true.,dragging=.false.,mv_drag=.false.
  real(c_double),save::mx=-1,my=-1,zoom=1,pan=0,lastx=0,mv_lx=0,mv_ly=0,mv_px=0,mv_py=0
  ! Startup screen: one embedded component per frame, entry only after all are ready.
@@ -601,6 +605,7 @@ contains
    call label('Choose a view to open it full screen',24,50,ink,1)
   end if
   call button(1,0,'Back',width-170,14,150,42,.true.)
+  call mic_button(width-330,14,140)
   tw=(width-60-(cols-1)*28)/cols;th=(height-122-((n+cols-1)/cols-1)*28)/((n+cols-1)/cols)
   do i=1,n
    k=vl(i)
@@ -625,6 +630,305 @@ contains
    call rectangle(x,y,t,h,c);call rectangle(x+w-t,y,t,h,c)
   end subroutine
  end subroutine
+! @nativefn NR2-M03-F0125V
+ subroutine voice_toggle()
+  ! Starts or stops browser speech recognition. The recogniser hands each final phrase back to
+  ! native_event as characters (kind 8) and an end mark (kind 9); kind 10 reports its state.
+  ! Phrases heard while MISSY itself is speaking are ignored so it never answers itself.
+  vc_on=.not.vc_on
+  if(vc_on)then
+   vc_heard='';vc_reply=''
+   if(vc_pack==5)call voice_pack()
+   call sys_script("(function(){try{var R=window.SpeechRecognition||window.webkitSpeechRecognition;"// &
+    "var E=NativeTransport.engine;if(!R){E._native_event(10,0,0,4);return}"// &
+    "if(window.__mvr){try{window.__mvr.abort()}catch(e){}}"// &
+    "var r=new R();r.lang='en-US';r.continuous=true;r.interimResults=false;r.maxAlternatives=1;"// &
+    "if(window.__mvpack&&('processLocally' in r))r.processLocally=true;"// &
+    "window.__mvon=true;window.__mvr=r;"// &
+    "r.onresult=function(ev){var c=window.__mcalm;if((c&&!c.paused&&!c.ended)||"// &
+    "(window.speechSynthesis&&speechSynthesis.speaking))return;"// &
+    "for(var i=ev.resultIndex;i<ev.results.length;i++){if(!ev.results[i].isFinal)continue;"// &
+    "var t=ev.results[i][0].transcript.trim().slice(0,190);"// &
+    "for(var j=0;j<t.length;j++){var k=t.charCodeAt(j);E._native_event(8,0,0,k<128?k:32)}"// &
+    "E._native_event(9,0,0,0)}};"// &
+    "r.onerror=function(e){if(e.error==='not-allowed'||e.error==='service-not-allowed'){window.__mvon=false;"// &
+    "E._native_event(10,0,0,3)}else if(e.error==='audio-capture'||e.error==='language-not-supported'){"// &
+    "window.__mvon=false;E._native_event(10,0,0,4)}};"// &
+    "r.onend=function(){if(window.__mvon){try{r.start()}catch(e){}}};"// &
+    "r.start()}catch(e){try{NativeTransport.engine._native_event(10,0,0,4)}catch(e2){}}})()")
+   call play_cue('voiceStart')
+  else
+   call sys_script("(function(){window.__mvon=false;try{window.__mvr&&window.__mvr.abort()}catch(e){}})()")
+   call play_cue('voiceStop')
+  end if
+ end subroutine
+! @nativefn NR2-M03-F0125P
+ subroutine voice_pack()
+  ! As in MISSY: check the browser's on-device English speech pack (en-US, processed locally) and
+  ! download it when the browser offers it, at start-up; recognition then runs offline. Browsers
+  ! without on-device recognition keep their normal recogniser.
+  vc_pack=1
+  call sys_script("(function(){try{var C=window.SpeechRecognition||window.webkitSpeechRecognition;"// &
+   "var E=NativeTransport.engine;if(!C||typeof C.available!=='function'){E._native_event(10,0,0,13);return}"// &
+   "var o={langs:['en-US'],processLocally:true};C.available(o).then(function(st){"// &
+   "if(st==='available'){window.__mvpack=true;E._native_event(10,0,0,11);return}"// &
+   "if((st==='downloadable'||st==='downloading')&&typeof C.install==='function'){E._native_event(10,0,0,12);"// &
+   "C.install(o).then(function(ok){window.__mvpack=!!ok;E._native_event(10,0,0,ok?11:14)})"// &
+   ".catch(function(){E._native_event(10,0,0,14)});return}"// &
+   "E._native_event(10,0,0,13)}).catch(function(){E._native_event(10,0,0,13)})}"// &
+   "catch(e){try{NativeTransport.engine._native_event(10,0,0,13)}catch(e2){}}})()")
+ end subroutine
+ function pack_text() result(t)
+  character(len=60)::t
+  select case(vc_pack)
+  case(1)
+   t='English voice pack: checking'
+  case(2)
+   t='English voice pack: downloading'
+  case(3)
+   t='English voice pack: ready (offline)'
+  case(4)
+   t='English voice pack: not offered (browser recogniser)'
+  case(5)
+   t='English voice pack: download failed (browser recogniser)'
+  case default
+   t=''
+  end select
+ end function
+ subroutine mic_button(x,y,w)
+  ! Voice-command (microphone) switch, present on every page.
+  integer,intent(in)::x,y,w
+  if(vc_on)then
+   call button(120,0,'Mic: on',x,y,w,42,.true.)
+  else
+   call button(120,0,'Mic: off',x,y,w,42,.true.)
+  end if
+ end subroutine
+! @nativefn NR2-M03-F0125W
+ subroutine voice_event(kind,value)
+  integer,intent(in)::kind,value
+  select case(kind)
+  case(8)
+   if(value>=32.and.value<127.and.vc_n<199)then
+    vc_n=vc_n+1;vc_buf(vc_n:vc_n)=achar(value)
+   end if
+  case(9)
+   if(vc_n>0)call voice_command(vc_buf(1:vc_n))
+   vc_buf='';vc_n=0
+  case(10)
+   select case(value)
+   case(3)
+    vc_on=.false.;call play_cue('voicePermission')
+   case(4)
+    vc_on=.false.;call play_cue('voiceUnavailable')
+   case(11)
+    vc_pack=3
+   case(12)
+    vc_pack=2
+   case(13)
+    vc_pack=4
+   case(14)
+    vc_pack=5
+   end select
+  end select
+ end subroutine
+! @nativefn NR2-M03-F0125X
+ subroutine voice_command(heard)
+  ! Grammar of the MISSY voice console: "Computer" (wake word) followed by a command. Answers
+  ! use the MISSY cues and Calm voice; unknown commands get the "not in grammar" tone.
+  character(len=*),intent(in)::heard
+  character(len=200)::t,c
+  integer::i,k
+  t=' '//heard
+  do i=1,len_trim(t)
+   if(t(i:i)>='A'.and.t(i:i)<='Z')t(i:i)=achar(iachar(t(i:i))+32)
+   if(index('.,;:!?"',t(i:i))>0)t(i:i)=' '
+  end do
+  k=index(t,'computer',back=.true.)
+  if(k==0)return                                   ! no wake word: not addressed to MISSY
+  c=adjustl(t(k+8:))
+  vc_heard='Computer '//trim(c)
+  if(len_trim(c)==0)then
+   call play_cue('enter');vc_reply='Computer standing by.';return
+  end if
+  if(has('cancel red alert').or.has('cancel alert'))then
+   vc_alert=.false.;call play_tone('map003');call speak('Manual red alert stopped.',.true.)
+  else if(has('red alert'))then
+   vc_alert=.true.;call play_cue('redalert')
+  else if(has('stop listening').or.has('voice off').or.has('voice control off').or.has('voice commands off'))then
+   call voice_toggle()
+  else if(has('help').or.has('what can i say').or.has('commands'))then
+   call play_tone('map003')
+   call speak('Say Computer, then: status report; start run; show live run; stop run; show results; '// &
+    'next run; previous run; check the controls; target channel; endogenous channel; temperature; '// &
+    'zoom in; zoom out; reset view; scenarios; references; animation theatre; go home; go back; '// &
+    'sound on or off; red alert; stop listening.',.true.)
+  else if(has('status'))then
+   call play_tone('map003');call speak(voice_status_text(),.true.)
+  else if(has('control'))then
+   call play_tone('map003');call speak(controls_text(),.true.)
+  else if(has('stop').or.has('abort'))then
+   if(ui_busy())then
+    call action(7,0);call play_cue('cancel')
+   else
+    call play_tone('map005');call speak('No run in progress.',.true.)
+   end if
+  else if(has('live').or.has('show run').or.has('watch').or.has('current run'))then
+   if(ui_busy())then
+    call action(55,0);call play_cue('reviewCurves')
+   else
+    call play_tone('map005');call speak('No run in progress.',.true.)
+   end if
+  else if(has('start').or.has('begin').or.has('run pcr').or.has('run the pcr'))then
+   if(ui_busy())then
+    call play_tone('map005');call speak('A run is already in progress. '//trim(live_run_text())//'.',.true.)
+   else
+    call action(55,0);call play_cue('working')
+   end if
+  else if(has('result'))then
+   if(nh>0)then
+    call action(3,0);call play_cue('resultsPage')
+   else
+    call play_tone('map005');call speak('No runs filed yet.',.true.)
+   end if
+  else if(has('next'))then
+   call action(9,0);call play_cue('next')
+  else if(has('previous').or.has('last run'))then
+   call action(8,0);call play_cue('previous')
+  else if(has('endogen').or.has('reference gene').or.has('second channel').or.has('yellow'))then
+   if(page/=1)page=merge(1,page,ui_busy().or.nh>0)
+   graphmode=2;call play_cue('signalSelected')
+  else if(has('target').or.has('fam').or.has('fluorescence'))then
+   if(page/=1)page=merge(1,page,ui_busy().or.nh>0)
+   graphmode=0;call play_cue('signalSelected')
+  else if(has('temperature'))then
+   if(page/=1)page=merge(1,page,ui_busy().or.nh>0)
+   graphmode=1;zoom=1;pan=0;call play_cue('graphSelected')
+  else if(has('zoom in').or.has('magnif'))then
+   zoom=min(20d0,zoom*1.2d0);call play_cue('zoomIn')
+  else if(has('zoom out'))then
+   zoom=max(1d0,zoom/1.2d0);call play_cue('zoomOut')
+  else if(has('reset'))then
+   call action(18,0);call play_cue('zoomReset')
+  else if(has('scenario').or.has('fault'))then
+   call action(20,0);call play_cue('sopPage')
+  else if(has('reference').or.has('source'))then
+   call action(6,0);call play_cue('license')
+  else if(has('theatre').or.has('theater').or.has('animation'))then
+   call action(73,0);call play_cue('graphsPage')
+  else if(has('profile').or.has('configure'))then
+   call action(5,0);call play_cue('profileSelect')
+  else if(has('home').or.has('entry screen'))then
+   page=0;view_mv=.false.;call play_cue('workspaceBack')
+  else if(has('back').or.has('return'))then
+   call action(1,0);call play_cue('consoleClose')
+  else if(has('sound off').or.has('mute'))then
+   call play_cue('affirmative');au_on=.false.
+  else if(has('sound on'))then
+   au_on=.true.;call play_cue('affirmative')
+  else if(has('download').or.has('export'))then
+   if(selected>0.and..not.ui_busy())then
+    call action(11,0);call play_cue('download')
+   else
+    call play_tone('map005');call speak('Select a filed run first.',.true.)
+   end if
+  else
+   call play_tone('map004')
+   call speak('Unable to comply. Say Computer help for the command list.',.true.)
+  end if
+ contains
+  logical function has(w)
+   character(len=*),intent(in)::w
+   has=index(' '//trim(c)//' ',' '//w)>0
+  end function
+ end subroutine
+! @nativefn NR2-M03-F0125Y
+ function voice_status_text() result(t)
+  character(len=300)::t
+  if(ui_busy())then
+   t='Status report. '//trim(live_run_text())//'. Block '//trim(real_text(.5d0*(plant(3)+plant(4)),1))// &
+    ' degrees. Lid '//trim(real_text(plant(5),0))//' degrees. '//trim(integer_text(nh))//' runs filed.'
+  else
+   t='Status report. No run in progress. '//trim(integer_text(nh))//' runs filed.'
+  end if
+ end function
+! @nativefn NR2-M03-F0125Z
+ function controls_text() result(t)
+  ! Spoken check of the run controls of the selected (or latest) filed run.
+  character(len=400)::t
+  integer::s,k
+  type(run_t)::rr
+  k=selected;if(k<1)k=nh
+  if(k<1)then
+   t='No runs filed yet.';return
+  end if
+  rr=history(k);s=rr%ne*rr%nr
+  t='Run '//trim(integer_text(k))//'. '
+  if(rr%cq(s+1)>0)then
+   t=trim(t)//' Positive control target Cq '//trim(real_text(rr%cq(s+1),1))//', endogene Cq '//trim(real_text(rr%cq2(s+1),1))//'.'
+  else
+   t=trim(t)//' Positive control target not detected.'
+  end if
+  t=trim(t)//merge(' NTC clean.             ',' NTC amplified.         ',rr%cq(s+2)<=0.and.rr%cq2(s+2)<=0)
+  t=trim(t)//merge(' Extraction blank clean.    ',' Extraction blank amplified.',rr%cq(s+3)<=0.and.rr%cq2(s+3)<=0)
+  select case(verdict(rr))
+  case(1)
+   t=trim(t)//' Controls passed.'
+  case(4)
+   t=trim(t)//' Controls passed. Deliberate scenario: review required.'
+  case(2)
+   t=trim(t)//' Control check failed. Investigate.'
+  case default
+   t=trim(t)//' Run partial or stopped. Not accepted.'
+  end select
+ end function
+! @nativefn NR2-M03-F0125C
+ function cue_for(id,l) result(c)
+  ! MISSY cue (tone + phrase) for an action: the same station names as the MISSY workbench.
+  integer,intent(in)::id
+  character(len=*),intent(in)::l
+  character(len=20)::c
+  c='affirmative'
+  select case(id)
+  case(3)
+   c='resultsPage'
+  case(5)
+   c='profileSelect'
+  case(6)
+   c='license'
+  case(7)
+   c='cancel'
+  case(8)
+   c='previous'
+  case(9)
+   c='next'
+  case(10,28,58)
+   c='signalSelected'
+  case(11,12,40)
+   c='download'
+  case(13)
+   c='loadPage'
+  case(18)
+   c='zoomReset'
+  case(20)
+   c='sopPage'
+  case(55)
+   c='working';if(ui_busy())c='reviewCurves'
+  case(57,2)
+   c='working'
+  case(62)
+   c='reviewInstrument'
+  case(73,76)
+   c='graphsPage'
+  case(90)
+   c='enter'
+  case(1,74)
+   c='consoleClose';if(page==2.or.page==4.or.page==5.or.page==6.or.page==1)c='workspaceBack'
+  case(106,97,99)
+   c='graphSelected'
+  end select
+  if(index(l,'download')>0.or.index(l,'save')>0)c='download'
+ end function
 ! @nativefn NR2-M03-F0125
  subroutine select_feedback(id,arg,lab)
   ! Action sound (MISSY R2 cue chosen as in the original: download, return, start, enter,
@@ -633,44 +937,41 @@ contains
   character(len=*),intent(in)::lab
   character(len=60)::l
   character(len=200)::say
+  character(len=20)::cue
   integer::i
   l=lab
   do i=1,len_trim(l)
    if(l(i:i)>='A'.and.l(i:i)<='Z')l(i:i)=achar(iachar(l(i:i))+32)
   end do
-  if(index(l,'download')>0.or.index(l,'save')>0)then
-   call play_cue('download')
-  else if(id==1.or.id==74.or.index(l,'home')>0.or.index(l,'back')>0.or.index(l,'close')>0)then
-   call play_cue('consoleClose')
-  else if(id==2.or.id==55.or.id==57.or.index(l,'start')>0.or.index(l,'run ')>0.or.index(l,'recompute')>0)then
-   call play_cue('working')
-  else if(id==90)then
-   call play_cue('enter')
-  else if(id==76.or.id==73)then
-   call play_cue('loaded')
-  else
-   call play_cue('affirmative')
+  ! MISSY behaviour: the cue tone followed by the cue's Calm v1 phrase ("Result records
+  ! accessed.", "Stop requested." ...). Views, scenes and molecules have their own description,
+  ! which is spoken instead of the phrase (tone only).
+  cue=cue_for(id,l)
+  if(id==120)then
+   call action(id,arg);return                  ! voice_toggle plays its own cue
   end if
   call action(id,arg)
-  say=lab
+  say=''
   select case(id)
   case(70,71,73)
    say=theatre_title(theatre_k)
   case(76,80,81,89)
    say=trim(mv_title())
-  case(90)
-   say=cue_phrase('enter')
   case(97,99,103,104)
    say=trim(view_kind(view_k))//' view. '//trim(view_desc(view_k))
   case(106)
    say=trim(group_name(arg))
    if(page==12)say=trim(view_kind(view_k))//' view. '//trim(view_desc(view_k))
   case(93)
-   say='';if(au_on)call play_cue('affirmative')
+   say='';cue='affirmative';if(.not.au_on)cue=''
   case(94)
-   say='Voice on';if(.not.voice_on)say=''
+   say='';cue='voiceStart';if(.not.voice_on)cue=''
   end select
-  if(len_trim(say)>=2)call speak(trim(say),.true.)
+  if(len_trim(say)>=2)then
+   call play_tone(trim(cue));call speak(trim(say),.true.)
+  else if(len_trim(cue)>0)then
+   call play_cue(trim(cue))
+  end if
  contains
   function mv_title() result(t)
    character(len=120)::t
@@ -2028,6 +2329,9 @@ contains
   character(len=220)::srcs(12)
   real(c_double)::a0,a1,b0,b1,clipmark(4)
   nb=0
+  if(vc_pack==0)then                       ! from start-up: English speech pack and MISSY voice
+   call voice_pack();call load_calm()
+  end if
   if(page/=7.and.page/=11.and.page/=12.and.preview_mode.and..not.pv_bg)call cancel_preview()   ! background cache runs continue
   if(page==-2)then
    call allocate_frame(width,height,rgba(10,7,12,255));call draw_preload();call draw_memory_stats()
@@ -2054,6 +2358,7 @@ contains
    end if
    call button(71,0,'Next',width-360,16,130,42,.true.)
    call button(74,0,'Home',width-220,16,190,42,.true.)
+   call mic_button(width-940,16,140)
    call draw_theatre_scene(theatre_k,16d0,78d0,real(width-32,c_double),real(height-90,c_double),theatre_t,theatre_dt)
    call draw_memory_stats()
    ptr=c_loc(pixels(1));dirty=.false.;return
@@ -2083,7 +2388,8 @@ contains
    call button(102,0,'Animation',x0,10,110,42,.true.);x0=x0+115
    call button(99,-1,'View <',x0,10,90,42,.true.);x0=x0+95
    call button(99,1,'View >',x0,10,90,42,.true.);x0=x0+95
-   call button(1,0,'Back',x0,10,90,42,.true.)
+   call button(1,0,'Back',x0,10,90,42,.true.);x0=x0+95
+   call mic_button(x0,10,120)
    ptr=c_loc(pixels(1));dirty=.false.;return
   end if
   if(page==12)then
@@ -2108,13 +2414,15 @@ contains
    call button(99,-1,'<',width-420,10,50,42,.true.)
    call button(99,1,'>',width-365,10,50,42,.true.)
    call button(1,0,'Back',width-310,10,130,42,.true.)
+   call mic_button(width-170,10,150)
    ptr=c_loc(pixels(1));dirty=.false.;return
   end if
   if(page==10)then
    call allocate_frame(width,height,rgba(10,7,13,255))
    x0=16
    call mv_toolbar(x0,16)
-   call button(1,0,'Home',x0,16,75,42,.true.)
+   call button(1,0,'Home',x0,16,75,42,.true.);x0=x0+80
+   call mic_button(x0,16,120)
    call mv_draw(16d0,70d0,real(width-32,c_double),real(height-80,c_double))
    call draw_memory_stats()
    ptr=c_loc(pixels(1));dirty=.false.;return
@@ -2143,6 +2451,17 @@ contains
    call button(1,0,'Go back',width-200,32,170,42,.true.)
   else
    call button(1,0,'Home / Go back',width-200,32,170,42,.true.)
+  end if
+  if(vc_on)then
+   call button(120,0,'Voice commands: on',700,32,280,42,.true.)
+   if(len_trim(vc_heard)>0)then
+    call label('Heard: '//trim(vc_heard),700,80,cyan,1)
+   else
+    call label('Say "Computer" then a command ("Computer help")',700,80,cyan,1)
+   end if
+  else
+   call button(120,0,'Voice commands: off',700,32,280,42,.true.)
+   if(vc_pack>0)call label(trim(pack_text()),700,80,purple,1)
   end if
   if(ui_busy().and.page/=1)call button(55,0,'Live run: '//trim(live_run_text()),width-900,32,340,42,.true.)
   if(au_on)then
@@ -2292,8 +2611,7 @@ contains
    call label(trim(stats_one_line()),width-label_width(trim(stats_one_line()),1)-30,26,purple,1)
    return
   else
-   bx=560;by=46
-   if(n<3)by=56
+   bx=310;by=50
   end if
   do i=1,n
    if(index(l(i),'Case curves')==1)then
@@ -2410,6 +2728,8 @@ contains
    call change_field(arg,1)
   case(18)
    zoom=1;pan=0
+  case(120)
+   call voice_toggle()
   case(20)
    if(.not.ui_busy())page=6
   case(21)
@@ -2633,6 +2953,9 @@ contains
   real(c_double)::v,p(6)
   logical::ok
   type(c_ptr)::refreshed
+  if(kind>=8.and.kind<=10)then          ! speech recognition results (see voice_toggle)
+   call voice_event(kind,value);dirty=.true.;return
+  end if
   if(kind==7)then
    mx=mx
   else if(kind==1.or.kind==2.or.kind==3.or.kind==6)then
