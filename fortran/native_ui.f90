@@ -14,6 +14,8 @@ module native_ui
 use native_sys
 use native_audio
  use native_theatre
+ use native_schematic
+ use native_circuit, only: ckt_short, short_name
  use native_structure, only: st_n,st_kind,st_count
  use native_scenarios
  use r2_math, only: rng_uniform, rng_gauss
@@ -52,7 +54,7 @@ use native_audio
  integer,save::pv_channel=1
  logical,save::show_fault=.true.,show_structure=.false.,show_3d=.true.,view_mv=.false.
  integer,save::card_page=1
- integer,save::view_k=1
+ integer,save::view_k=1,view_group=0
  integer,save::struct_idx=1
  logical,save::pv_show_norm=.true.,pv_show_fault=.true.
  integer,save::theatre_k=1
@@ -189,6 +191,11 @@ contains
    call add('MISSY R2 numerical model (this project): full-model simulation of the case and of the normal run; all values simulated.')
    return
   end if
+  if(k==5.or.k==6)then
+   call add('Method: modified nodal analysis as in SPICE (Nagel, L.W., 1975, SPICE2, Memo ERL-M520, Univ. of California, '// &
+    'Berkeley); circuit values simulated by MISSY R2 (this project) with illustrative part values.')
+   return
+  end if
   if(k==4.and.f/=2)then
    call add('Mullins, E.A., Salay, L.E., Durie, C.L., Bradley, N.P., Jackman, J.E., Ohi, M.D., Chazin, W.J. and Eichman, B.F. '// &
     '(2024). A mechanistic model of primer synthesis from catalytic structures of DNA polymerase alpha-primase. '// &
@@ -244,6 +251,32 @@ contains
    call wrapped_px(trim(view_short(k)),cx+56,cy+ch-60,cw-64,ink)
   end if
   call hotspot(97,k,cx,cy,cw,ch)
+  if(mx>=cx.and.mx<=cx+cw.and.my>=cy.and.my<=cy+ch)then
+   call card_frame(cx-4,cy-4,cw+8,ch+8,orange,3)
+  else
+   call card_frame(cx-4,cy-4,cw+8,ch+8,c,2)
+  end if
+ end subroutine
+! @nativefn NR2-M03-F0146
+ subroutine group_card(g,cx,cy,cw,ch)
+  ! A group of similar views as one card: live preview of its first view, name and count;
+  ! click: the group's own page with its views (or full screen when it has one view).
+  integer,intent(in)::g,cx,cy,cw,ch
+  integer(c_int32_t)::c
+  integer::n,v(2)
+  call group_views(g,n,v)
+  call case_view(v(1),real(cx,c_double),real(cy,c_double),real(cw,c_double),real(ch-74,c_double),anim_t)
+  if(n>1)then
+   call soft_panel(cx+cw-118,cy+8,110,30,8,rgba(24,15,23,235))
+   call label(trim(integer_text(n))//' views',cx+cw-104,cy+12,cyan,1)
+  end if
+  call soft_panel(cx,cy+ch-72,cw,72,8,rgba(28,18,30,255))
+  c=merge(cyan,orange,g==2)
+  call label(trim(group_name(g)),cx+12,cy+ch-68,c,1)
+  if(cw>=380)then
+   call wrapped_px(trim(group_text(g)),cx+12,cy+ch-44,cw-24,ink)
+  end if
+  call hotspot(106,g,cx,cy,cw,ch)
   if(mx>=cx.and.mx<=cx+cw.and.my>=cy.and.my<=cy+ch)then
    call card_frame(cx-4,cy-4,cw+8,ch+8,orange,3)
   else
@@ -318,6 +351,10 @@ contains
    else
     t=trim(t)//' What happens in each tube, atom by atom.'
    end if
+  case(5)
+   t=trim(t)//' H-bridge, Peltier, sensors, fan, lid; live simulated values.'
+  case(6)
+   t=trim(t)//' LED driver, photodiode amplifier, ADC; live simulated values.'
   case default
    t=trim(t)//' Fault (colours) against normal (grey dashed). Click for full size.'
   end select
@@ -343,6 +380,10 @@ contains
    else
     t='Inside the tube: 8UCU DNA'
    end if
+  case(5)
+   t='Thermal electronics schematic'
+  case(6)
+   t='Optical electronics schematic'
   case default
    t='Amplification curves'
   end select
@@ -377,8 +418,9 @@ contains
  end subroutine
 ! @nativefn NR2-M03-F0127
  integer function nviews() result(n)
-  ! drawings (fault, normal), 3D view, [structure for molecular cases], amplification curves
-  n=5
+  ! 1 fault drawing, 2 normal drawing, 3-4 3D views, 5-6 electrical schematics (hardware
+  ! cases only, see view_ok), 7 amplification curves
+  n=7
  end function
 ! @nativefn NR2-M03-F0128
  function view_kind(k) result(t)
@@ -391,6 +433,68 @@ contains
    t='3D'
   case default
    t='2D'
+  end select
+ end function
+! @nativefn NR2-M03-F0141
+ logical function view_ok(k)
+  ! electrical schematics exist for the hardware (instrument) cases
+  integer,intent(in)::k
+  view_ok=k>=1.and.k<=nviews()
+  if(k==5.or.k==6)view_ok=scene_family(p_scenario)==1
+ end function
+! @nativefn NR2-M03-F0142
+ subroutine group_views(g,n,v)
+  ! card groups: 1 technical drawings, 2 3D views, 3 electrical schematics, 4 curves
+  integer,intent(in)::g
+  integer,intent(out)::n,v(2)
+  select case(g)
+  case(1)
+   n=2;v=[1,2]
+  case(2)
+   n=2;v=[3,4]
+  case(3)
+   n=2;v=[5,6]
+  case default
+   n=1;v=[7,7]
+  end select
+ end subroutine
+! @nativefn NR2-M03-F0143
+ integer function group_of(k) result(g)
+  integer,intent(in)::k
+  g=min(4,(k+1)/2)
+ end function
+! @nativefn NR2-M03-F0144
+ function group_name(g) result(t)
+  integer,intent(in)::g
+  character(len=40)::t
+  select case(g)
+  case(1)
+   t='Technical drawings'
+  case(2)
+   t='3D views'
+  case(3)
+   t='Electrical schematics'
+  case default
+   t='Amplification curves'
+  end select
+ end function
+! @nativefn NR2-M03-F0145
+ function group_text(g) result(t)
+  integer,intent(in)::g
+  character(len=200)::t
+  select case(g)
+  case(1)
+   t='2 views: the fault drawing and the same drawing without the fault. Click to choose.'
+  case(2)
+   if(scene_family(p_scenario)==2)then
+    t='2 views: real 8UCU DNA with polymerase, and the protein-DNA structures. Click to choose.'
+   else
+    t='2 views: rotating instrument cut-away, and inside the tube (8UCU DNA). Click to choose.'
+   end if
+  case(3)
+   t='2 views: thermal and optical electronics, simulated live, with the suspect part probed.'
+  case default
+   t='Fault (colours) against normal (grey dashed). Click for full size.'
   end select
  end function
 ! @nativefn NR2-M03-F0129
@@ -427,6 +531,10 @@ contains
    else
     t='Rotating cut-away of the cycler: block, Peltier modules, heat sink, fan, heated lid and optics'
    end if
+  case(5)
+   t='Thermal electronics: H-bridge Peltier drive, current sense, thermistors, lid heater, fan; MNA simulation, suspect part probed'
+  case(6)
+   t='Optical electronics: LED current driver, light path, photodiode TIA, gain stage, ADC; MNA simulation, suspect part probed'
   case default
    if(f==2)then
     t='Rotating atom model of the protein-DNA structures (PDB), with the fault shown on the enzyme'
@@ -450,6 +558,9 @@ contains
    call draw_fault_scene(p_scenario,scenario_bank(:,p_scenario),x/2,y/2,w/2,h/2,t,k==1)
    render_scale=2;return
   end if
+  if(k==5.or.k==6)then
+   call draw_schematic(k-4,p_scenario,scenario_bank(:,p_scenario),.true.,x,y,w,h,t);return
+  end if
   select case(k)
   case(1)
    call draw_fault_scene(p_scenario,scenario_bank(:,p_scenario),x,y,w,h,t,.true.)
@@ -468,15 +579,29 @@ contains
 ! @nativefn NR2-M03-F0131
  subroutine draw_view_menu()
   ! Full-screen menu: every view of the selected case as a live preview; click one to open it.
-  integer::n,k,tw,th,tx,ty,cols
-  n=nviews();cols=2
-  if(n==3.and.width>1500)cols=3
+  integer::n,k,tw,th,tx,ty,cols,i,vl(7)
+  if(view_group>0)then
+   call group_views(view_group,n,vl(1:2))
+  else
+   n=0
+   do i=1,nviews()
+    if(view_ok(i))then
+     n=n+1;vl(n)=i
+    end if
+   end do
+  end if
+  cols=min(n,2)
   call label('Case '//trim(scenario_ids(p_scenario))//'   '//trim(scenario_titles(p_scenario)),24,14,orange,2)
-  call label('Choose a view to open it full screen',24,50,ink,1)
+  if(view_group>0)then
+   call label(trim(group_name(view_group))//': choose a view to open it full screen',24,50,ink,1)
+  else
+   call label('Choose a view to open it full screen',24,50,ink,1)
+  end if
   call button(1,0,'Back',width-170,14,150,42,.true.)
   tw=(width-60-(cols-1)*28)/cols;th=(height-122-((n+cols-1)/cols-1)*28)/((n+cols-1)/cols)
-  do k=1,n
-   tx=30+mod(k-1,cols)*(tw+28);ty=92+((k-1)/cols)*(th+28)
+  do i=1,n
+   k=vl(i)
+   tx=30+mod(i-1,cols)*(tw+28);ty=92+((i-1)/cols)*(th+28)
    call case_view(k,real(tx,c_double),real(ty,c_double),real(tw,c_double),real(th-64,c_double),anim_t)
    call soft_panel(tx,ty+th-60,tw,58,10,rgba(28,18,30,255))
    call label(trim(view_kind(k)),tx+14,ty+th-52,merge(cyan,orange,view_kind(k)=='3D'),2)
@@ -534,6 +659,9 @@ contains
    say=cue_phrase('enter')
   case(97,99,103,104)
    say=trim(view_kind(view_k))//' view. '//trim(view_desc(view_k))
+  case(106)
+   say=trim(group_name(arg))
+   if(page==12)say=trim(view_kind(view_k))//' view. '//trim(view_desc(view_k))
   case(93)
    say='';if(au_on)call play_cue('affirmative')
   case(94)
@@ -1126,21 +1254,29 @@ contains
   ! Case page as cards: settings card plus the five picture cards (fault drawing, normal
   ! drawing, 3D view, second 3D view, curves). Cards keep a minimum size; when they do not all
   ! fit, arrows page through them. Picture cards open full screen when clicked.
-  integer::i,gx,gy,gw,gh,cols,rows,per,pages,cw,ch,k,slot,cx,cy,y
+  integer::i,gx,gy,gw,gh,cols,rows,per,pages,cw,ch,k,slot,cx,cy,y,ncard,gl(4)
   if(p_scenario<1)return
+  ncard=1
+  do i=1,4
+   if(i==3.and.scene_family(p_scenario)/=1)cycle
+   ncard=ncard+1;gl(ncard-1)=i
+  end do
   gx=40;gy=122;gw=width-80;gh=height-122-150
   cols=max(1,min(3,(gw+18)/(480+18)));rows=max(1,min(2,(gh+18)/(240+18)))
-  per=cols*rows;pages=(6+per-1)/per
+  if(ncard==5.and.cols==3.and.rows==2)then
+   cols=3                        ! 5 cards: 3 + 2
+  end if
+  per=cols*rows;pages=(ncard+per-1)/per
   card_page=max(1,min(pages,card_page))
   cw=(gw-(cols-1)*18)/cols;ch=(gh-(rows-1)*18)/rows
-  do k=1,6
+  do k=1,ncard
    slot=k-(card_page-1)*per
    if(slot<1.or.slot>per)cycle
    cx=gx+mod(slot-1,cols)*(cw+18);cy=gy+((slot-1)/cols)*(ch+18)
    if(k==1)then
     call settings_card(cx,cy,cw,ch)
    else
-    call view_card(k-1,cx,cy,cw,ch)
+    call group_card(gl(k-1),cx,cy,cw,ch)
    end if
   end do
   if(pages>1)then
@@ -1924,6 +2060,7 @@ contains
    end do
    call label(trim(view_kind(view_k))//'   '//trim(view_desc(view_k)),24,18,orange,1)
    if((view_k==3.and.scene_family(p_scenario)==2).or.view_k==4)call button(102,0,'Molecule tools',width-600,10,170,42,.true.)
+   if(view_k==5.or.view_k==6)call button(107,0,'Short circuit: '//trim(short_name(ckt_short)),width-760,10,330,42,.true.)
    call button(99,-1,'<',width-420,10,50,42,.true.)
    call button(99,1,'>',width-365,10,50,42,.true.)
    call button(1,0,'Back',width-310,10,130,42,.true.)
@@ -2117,6 +2254,7 @@ contains
 ! @nativefn NR2-M03-F0011
  subroutine action(id,arg)
   integer,intent(in)::id,arg
+  integer::nbk,vbk(2)
   select case(id)
   case(1)
    ! Go back one level: case page -> catalogue (same catalogue page), view -> view menu ->
@@ -2126,6 +2264,10 @@ contains
     page=6
    case(12)
     page=7      ! the case page holds the view cards
+    if(view_group>0)then
+     call group_views(view_group,nbk,vbk)
+     if(nbk>1)page=11
+    end if
    case(11)
     page=7
     if(pv_state==0.and.p_scenario>0)call start_preview(p_scenario)
@@ -2251,7 +2393,7 @@ contains
     view_k=2
    end if
   case(104)
-   view_mv=.false.;page=12;view_k=nviews()
+   view_mv=.false.;page=12;view_k=nviews();view_group=4
   case(100)
    mv_clip=max(0d0,mv_clip-.05d0)
   case(101)
@@ -2262,12 +2404,25 @@ contains
     call mv_open(max(1,struct_idx));mv_spin=.true.
    end if
   case(97)
-   view_k=arg;page=12;call enter_view()
+   view_k=arg;view_group=group_of(arg);page=12;call enter_view()
+  case(107)
+   ckt_short=mod(ckt_short+1,5)    ! cycle through the simulated shorts (restarts the circuit run)
+  case(106)
+   view_group=arg;view_mv=.false.
+   call group_views(arg,nbk,vbk)
+   if(nbk>1)then
+    page=11
+   else
+    view_k=vbk(1);page=12;call enter_view()
+   end if
   case(98)
    page=7;view_mv=.false.
    if(pv_state==0.and.p_scenario>0)call start_preview(p_scenario)
   case(99)
-   view_k=1+mod(view_k-1+arg+nviews(),nviews());page=12;call enter_view()
+   view_k=1+mod(view_k-1+arg+nviews(),nviews())
+   if(.not.view_ok(view_k))view_k=1+mod(view_k-1+arg+nviews(),nviews())
+   if(.not.view_ok(view_k))view_k=1+mod(view_k-1+arg+nviews(),nviews())
+   view_group=group_of(view_k);page=12;call enter_view()
   case(93)
    au_on=.not.au_on
   case(94)
