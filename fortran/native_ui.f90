@@ -40,7 +40,7 @@ use native_audio
   'Hydrolysis probe and detector optics','Cq threshold analysis','Scenario identifiers, titles and kinds (51)', &
   'Scenario parameter labels and bounds','Scenario default parameter bank (51 x 6)','Native profile defaults', &
   'Run history store (32 runs)','CRC-32 lookup table','SHA-256 message digest','DEFLATE compressor (fixed Huffman, LZ77)', &
-  'ZIP and RDMLt export buffers','References and edition notes (152 entries)','Home and navigation', &
+  'ZIP and RDMLt export buffers','References and edition notes (157 entries)','Home and navigation', &
   'Virtual PCR acquisition view and charts','Results and curve selection','Scenario catalogue, animations, 4 structures', &
   'References page']
  integer,save::boot_next=1,boot_pending=0,boot_failed=0,ref_page=0,boot_phase=0
@@ -50,7 +50,8 @@ use native_audio
  logical,save::booted=.false.
  real(c_double),save::anim_t=0,anim_acc=0
  integer,save::pv_channel=1
- logical,save::show_fault=.true.,show_structure=.false.,show_3d=.true.
+ logical,save::show_fault=.true.,show_structure=.false.,show_3d=.true.,view_mv=.false.
+ integer,save::view_k=1
  integer,save::struct_idx=1
  logical,save::pv_show_norm=.true.,pv_show_fault=.true.
  integer,save::theatre_k=1
@@ -150,6 +151,172 @@ contains
   if(nb>=size(buttons,2))return
   nb=nb+1;buttons(:,nb)=[id,arg,x,y,w,h,1];blabel(nb)=''
  end subroutine
+! @nativefn NR2-M03-F0132
+ subroutine mv_toolbar(x0,y)
+  ! Molecule tools: structure, what to show, colouring, contact cut-off, zoom, slice (front
+  ! clipping plane, to look inside), spin, reset and clearing the selected atoms.
+  integer,intent(inout)::x0
+  integer,intent(in)::y
+  call button(80,0,'<',x0,y,44,42,.true.);x0=x0+48
+  call button(81,0,'>',x0,y,44,42,.true.);x0=x0+48
+  call button(82,0,trim(mv_show_name()),x0,y,130,42,.true.);x0=x0+134
+  call button(83,0,trim(mv_col_name()),x0,y,160,42,.true.);x0=x0+164
+  call button(84,0,'Cut-off -',x0,y,80,42,.true.);x0=x0+84
+  call button(85,0,'+',x0,y,40,42,.true.);x0=x0+44
+  call button(86,0,'Zoom +',x0,y,64,42,.true.);x0=x0+68
+  call button(87,0,'Zoom -',x0,y,64,42,.true.);x0=x0+68
+  call button(100,0,'Slice -',x0,y,64,42,.true.);x0=x0+68
+  call button(101,0,'Slice +',x0,y,64,42,.true.);x0=x0+68
+  if(mv_spin)then
+   call button(88,0,'Spin: on',x0,y,80,42,.true.)
+  else
+   call button(88,0,'Spin: off',x0,y,80,42,.true.)
+  end if
+  x0=x0+84
+  call button(89,0,'Reset',x0,y,56,42,.true.);x0=x0+60
+  call button(91,0,'Clear',x0,y,56,42,.true.);x0=x0+60
+ end subroutine
+! @nativefn NR2-M03-F0133
+ subroutine view_sources(k,n,l)
+  ! One verified source for the picture, listed under the full-screen view (not on previews).
+  integer,intent(in)::k
+  integer,intent(out)::n
+  character(len=220),intent(out)::l(12)
+  integer::f
+  f=scene_family(p_scenario);n=0;l=''
+  if(k==4)then
+   select case(max(1,struct_idx))
+   case(2)
+    call add('Davies, D.R., Interthal, H., Champoux, J.J. and Hol, W.G. (2004). Explorations of peptide and oligonucleotide '// &
+     'binding sites of tyrosyl-DNA phosphodiesterase using vanadate complexes. J. Med. Chem., 47, 829-837. doi:10.1021/jm030487x')
+   case(3)
+    call add('Cramer, P., Larson, C.J., Verdine, G.L. and Muller, C.W. (1997). Structure of the human NF-kappaB p52 homodimer-DNA '// &
+     'complex at 2.1 A resolution. EMBO J., 16, 7078-7090. doi:10.1093/emboj/16.23.7078')
+   case(4)
+    call add('Jin, X., Gewirth, D.T. and Geiger, J.H. High resolution structure of a yeast TFIIA/TBP/TATA-box DNA complex. '// &
+     'PDB entry 1RM1, to be published. doi:10.2210/pdb1RM1/pdb')
+   case default
+    call add('Mullins, E.A., Salay, L.E., Durie, C.L., Bradley, N.P., Jackman, J.E., Ohi, M.D., Chazin, W.J. and Eichman, B.F. '// &
+     '(2024). A mechanistic model of primer synthesis from catalytic structures of DNA polymerase alpha-primase. '// &
+     'Nat. Struct. Mol. Biol., 31, 777. doi:10.1038/s41594-024-01227-4')
+   end select
+  else if(f==2.and.k==3)then
+   call add('Mullins, E.A., Salay, L.E., Durie, C.L., Bradley, N.P., Jackman, J.E., Ohi, M.D., Chazin, W.J. and Eichman, B.F. '// &
+    '(2024). A mechanistic model of primer synthesis from catalytic structures of DNA polymerase alpha-primase. '// &
+    'Nat. Struct. Mol. Biol., 31, 777. doi:10.1038/s41594-024-01227-4')
+  else if(f==2)then
+   call add('SantaLucia, J. Jr. (1998). A unified view of polymer, dumbbell, and oligonucleotide DNA nearest-neighbor '// &
+    'thermodynamics. Proc. Natl. Acad. Sci. USA, 95(4), 1460-1465. doi:10.1073/pnas.95.4.1460')
+  else
+   call add('Chai Open qPCR [CAD model]. GrabCAD Community Library. https://grabcad.com/library/chai-open-qpcr-1')
+  end if
+ contains
+  subroutine add(t)
+   character(len=*),intent(in)::t
+   if(n<12)then
+    n=n+1;l(n)=t
+   end if
+  end subroutine
+ end subroutine
+! @nativefn NR2-M03-F0127
+ integer function nviews() result(n)
+  n=3;if(scene_family(p_scenario)==2)n=4
+ end function
+! @nativefn NR2-M03-F0128
+ function view_kind(k) result(t)
+  ! What the picture is, not which mode button produced it: the structure view is a rotating
+  ! 3-D atom model even though it sits with the drawings.
+  integer,intent(in)::k
+  character(len=4)::t
+  select case(k)
+  case(3,4)
+   t='3D'
+  case default
+   t='2D'
+  end select
+ end function
+! @nativefn NR2-M03-F0129
+ function view_desc(k) result(t)
+  integer,intent(in)::k
+  character(len=200)::t
+  integer::f
+  f=scene_family(p_scenario)
+  select case(k)
+  case(1)
+   select case(f)
+   case(1)
+    t='Technical drawing of the 16-tube cycler with the fault'
+   case(2)
+    t='Schematic of one PCR cycle (primers, probe, polymerase) with the fault'
+   case(3)
+    t='Sample wells and template copies with the fault'
+   case default
+    t='Signal and data path with the fault'
+   end select
+   if(len_trim(fault_caption(p_scenario,scenario_bank(:,p_scenario)))>0)then
+    t=trim(t)//': '//trim(fault_caption(p_scenario,scenario_bank(:,p_scenario)))
+   else
+    t=trim(t)//': '//trim(scenario_titles(p_scenario))
+   end if
+  case(2)
+   t='The same drawing without the fault (normal reference)'
+  case(3)
+   if(f==2)then
+    t='Real PDB 8UCU primer / template DNA and polymerase, rotating, melting, annealing and extending'
+   else
+    t='Rotating cut-away of the cycler: block, Peltier modules, heat sink, fan, heated lid and optics'
+   end if
+  case default
+   t='Rotating atom model of the protein-DNA structures (PDB), with the fault shown on the enzyme'
+  end select
+ end function
+! @nativefn NR2-M03-F0130
+ subroutine case_view(k,x,y,w,h,t)
+  integer,intent(in)::k
+  real(c_double),intent(in)::x,y,w,h,t
+  select case(k)
+  case(1)
+   call draw_fault_scene(p_scenario,scenario_bank(:,p_scenario),x,y,w,h,t,.true.)
+  case(2)
+   call draw_fault_scene(p_scenario,scenario_bank(:,p_scenario),x,y,w,h,t,.false.)
+  case(3)
+   call case_scene_3d(p_scenario,scene_family(p_scenario),fault_caption(p_scenario,scenario_bank(:,p_scenario)),.true.,x,y,w,h,t)
+  case default
+   call draw_structure_scene(p_scenario,scenario_bank(:,p_scenario),x,y,w,h,t,.true.,struct_idx)
+  end select
+ end subroutine
+! @nativefn NR2-M03-F0131
+ subroutine draw_view_menu()
+  ! Full-screen menu: every view of the selected case as a live preview; click one to open it.
+  integer::n,k,tw,th,tx,ty,cols
+  n=nviews();cols=2
+  if(n==3.and.width>1500)cols=3
+  call label('Case '//trim(scenario_ids(p_scenario))//'   '//trim(scenario_titles(p_scenario)),24,14,orange,2)
+  call label('Choose a view to open it full screen',24,50,ink,1)
+  call button(1,0,'Back',width-170,14,150,42,.true.)
+  tw=(width-60-(cols-1)*28)/cols;th=(height-122-((n+cols-1)/cols-1)*28)/((n+cols-1)/cols)
+  do k=1,n
+   tx=30+mod(k-1,cols)*(tw+28);ty=92+((k-1)/cols)*(th+28)
+   call case_view(k,real(tx,c_double),real(ty,c_double),real(tw,c_double),real(th-64,c_double),anim_t)
+   call soft_panel(tx,ty+th-60,tw,58,10,rgba(28,18,30,255))
+   call label(trim(view_kind(k)),tx+14,ty+th-52,merge(cyan,orange,view_kind(k)=='3D'),2)
+   call wrapped_px(trim(view_desc(k)),tx+70,ty+th-54,tw-84,ink)
+   ! frame around the whole tile (preview and caption); brighter under the pointer
+   if(mx>=tx.and.mx<=tx+tw.and.my>=ty.and.my<=ty+th)then
+    call tile_frame(tx-6,ty-6,tw+12,th+12,orange,3)
+   else
+    call tile_frame(tx-6,ty-6,tw+12,th+12,merge(cyan,purple,view_kind(k)=='3D'),2)
+   end if
+   call hotspot(97,k,tx,ty,tw,th)
+  end do
+ contains
+  subroutine tile_frame(x,y,w,h,c,t)
+   integer,intent(in)::x,y,w,h,t
+   integer(c_int32_t),intent(in)::c
+   call rectangle(x,y,w,t,c);call rectangle(x,y+h-t,w,t,c)
+   call rectangle(x,y,t,h,c);call rectangle(x+w-t,y,t,h,c)
+  end subroutine
+ end subroutine
 ! @nativefn NR2-M03-F0125
  subroutine select_feedback(id,arg,lab)
   ! Action sound (MISSY R2 cue chosen as in the original: download, return, start, enter,
@@ -185,6 +352,8 @@ contains
    say=trim(mv_title())
   case(90)
    say=cue_phrase('enter')
+  case(97,99)
+   say=trim(view_kind(view_k))//' view. '//trim(view_desc(view_k))
   case(93)
    say='';if(au_on)call play_cue('affirmative')
   case(94)
@@ -817,14 +986,15 @@ contains
   else
    call button(58,0,'YY',px+150,402,110,40,.true.)
   end if
-  call button(57,0,'Recompute curves',px+270,402,175,40,.not.ui_busy().and.scenario_available(p_scenario))
+  call button(57,0,'Recompute',px+270,402,125,40,.not.ui_busy().and.scenario_available(p_scenario))
   if(scene_family(p_scenario)==2)then
    if(show_structure)then
-    call button(60,0,'Cycle view',px+455,402,pw-455,40,.true.)
+    call button(60,0,'Cycle',px+500,402,pw-500,40,.true.)
    else
-    call button(60,0,'Structure',px+455,402,pw-455,40,.true.)
+    call button(60,0,'Structure',px+500,402,pw-500,40,.true.)
    end if
   end if
+  call button(96,0,'Views',px+405,402,85,40,.true.)
   call plot_preview(px,452,pw,height-452-150)
   y=height-130
   call button(20,0,'Back to catalogue',60,y,210,42,.true.)
@@ -1518,10 +1688,11 @@ contains
 ! @nativefn NR2-M03-F0009
  function native_render() result(ptr) bind(c)
   type(c_ptr)::ptr
-  integer::v,cw,shown_cycle,i,x0
+  integer::v,cw,shown_cycle,i,x0,nsrc
+  character(len=220)::srcs(12)
   real(c_double)::a0,a1,b0,b1,clipmark(4)
   nb=0
-  if(page/=7.and.preview_mode.and..not.pv_bg)call cancel_preview()   ! background cache runs continue
+  if(page/=7.and.page/=11.and.page/=12.and.preview_mode.and..not.pv_bg)call cancel_preview()   ! background cache runs continue
   if(page==-2)then
    call allocate_frame(width,height,rgba(10,7,12,255));call draw_preload();call draw_memory_stats()
    ptr=c_loc(pixels(1));dirty=.false.;return
@@ -1551,26 +1722,48 @@ contains
    call draw_memory_stats()
    ptr=c_loc(pixels(1));dirty=.false.;return
   end if
+  ! Two device pixels per logical pixel: a full-screen window 1920 wide renders 3840 x 2160 (4K).
+  ! (A higher scale on small windows was too slow for the 2-D drawings in the browser.)
+  render_scale=2
+  if(page==11)then
+   call allocate_frame(width,height,rgba(10,7,13,255))
+   call draw_view_menu()
+   call draw_memory_stats()
+   ptr=c_loc(pixels(1));dirty=.false.;return
+  end if
+  if(page==12.and.view_mv)then
+   ! molecule tools on a full-screen 3D molecule view
+   call allocate_frame(width,height,rgba(10,7,13,255))
+   call mv_draw(0d0,62d0,real(width,c_double),real(height-62,c_double))
+   x0=16
+   call mv_toolbar(x0,10)
+   call button(102,0,'Animation',x0,10,110,42,.true.);x0=x0+115
+   call button(98,0,'Case page',x0,10,120,42,.true.)
+   call draw_memory_stats()
+   ptr=c_loc(pixels(1));dirty=.false.;return
+  end if
+  if(page==12)then
+   call allocate_frame(width,height,rgba(10,7,13,255))
+   call view_sources(view_k,nsrc,srcs)
+   call case_view(view_k,0d0,62d0,real(width,c_double),real(height-62-(22*nsrc+40),c_double),anim_t)
+   call soft_panel(10,height-(22*nsrc+34),width-20,22*nsrc+28,10,rgba(24,15,23,255))
+   call label('Sources',24,height-(22*nsrc+28),cyan,1)
+   do i=1,nsrc
+    call label(trim(srcs(i)),110,height-(22*nsrc+28)+22*(i-1),ink,1)
+   end do
+   call label(trim(view_kind(view_k))//'   '//trim(view_desc(view_k)),24,18,orange,1)
+   if(view_k>=3.and.scene_family(p_scenario)==2)call button(102,0,'Molecule tools',width-600,10,170,42,.true.)
+   call button(99,-1,'<',width-420,10,50,42,.true.)
+   call button(99,1,'>',width-365,10,50,42,.true.)
+   call button(1,0,'Back',width-310,10,130,42,.true.)
+   call button(98,0,'Case page',width-170,10,150,42,.true.)
+   call draw_memory_stats()
+   ptr=c_loc(pixels(1));dirty=.false.;return
+  end if
   if(page==10)then
    call allocate_frame(width,height,rgba(10,7,13,255))
-   call label('Molecule viewer',24,14,orange,2)
-   x0=max(230,width-1040)
-   call button(80,0,'<',x0,16,50,42,.true.);x0=x0+55
-   call button(81,0,'>',x0,16,50,42,.true.);x0=x0+55
-   call button(82,0,trim(mv_show_name()),x0,16,150,42,.true.);x0=x0+155
-   call button(83,0,trim(mv_col_name()),x0,16,170,42,.true.);x0=x0+175
-   call button(84,0,'Cut -',x0,16,70,42,.true.);x0=x0+75
-   call button(85,0,'+',x0,16,40,42,.true.);x0=x0+45
-   call button(86,0,'Zoom +',x0,16,75,42,.true.);x0=x0+80
-   call button(87,0,'Zoom -',x0,16,75,42,.true.);x0=x0+80
-   if(mv_spin)then
-    call button(88,0,'Spin: on',x0,16,85,42,.true.)
-   else
-    call button(88,0,'Spin: off',x0,16,85,42,.true.)
-   end if
-   x0=x0+90
-   call button(89,0,'Reset',x0,16,65,42,.true.);x0=x0+70
-   call button(91,0,'Clear',x0,16,65,42,.true.);x0=x0+70
+   x0=16
+   call mv_toolbar(x0,16)
    call button(1,0,'Home',x0,16,75,42,.true.)
    call mv_draw(16d0,70d0,real(width-32,c_double),real(height-80,c_double))
    call draw_memory_stats()
@@ -1596,7 +1789,11 @@ contains
   call label('F O R T R A N',68,77,purple,1)
   call rectangle(310,32,70,10,purple);call rectangle(390,32,100,10,orange)
   call rectangle(500,32,40,10,cyan)
-  call button(1,0,'Home / Go back',width-200,32,170,42,.true.)
+  if(page==7)then
+   call button(1,0,'Go back',width-200,32,170,42,.true.)
+  else
+   call button(1,0,'Home / Go back',width-200,32,170,42,.true.)
+  end if
   if(au_on)then
    call button(93,0,'Sounds: on',width-540,32,160,42,.true.)
   else
@@ -1752,7 +1949,20 @@ contains
   integer,intent(in)::id,arg
   select case(id)
   case(1)
-   page=0;edit_param=0
+   ! Go back one level: case page -> catalogue (same catalogue page), view -> view menu ->
+   ! case page; everything else -> home.
+   select case(page)
+   case(7)
+    page=6
+   case(12)
+    page=11
+   case(11)
+    page=7
+    if(pv_state==0.and.p_scenario>0)call start_preview(p_scenario)
+   case default
+    page=0
+   end select
+   edit_param=0;view_mv=.false.
   case(2)
    call start_batch();if(ui_busy())page=1
   case(3)
@@ -1855,6 +2065,24 @@ contains
    page=0
   case(95)
    show_3d=.not.show_3d
+  case(96)
+   page=11;view_mv=.false.
+  case(100)
+   mv_clip=max(0d0,mv_clip-.05d0)
+  case(101)
+   mv_clip=min(.95d0,mv_clip+.05d0)
+  case(102)
+   view_mv=.not.view_mv
+   if(view_mv)then
+    call mv_open(max(1,struct_idx));mv_spin=.true.
+   end if
+  case(97)
+   view_k=arg;page=12
+  case(98)
+   page=7;view_mv=.false.
+   if(pv_state==0.and.p_scenario>0)call start_preview(p_scenario)
+  case(99)
+   view_k=1+mod(view_k-1+arg+nviews(),nviews());page=12
   case(93)
    au_on=.not.au_on
   case(94)
@@ -1978,11 +2206,11 @@ contains
    if(page==1.and.my>=170.and.my<=height-190)then
     dragging=.true.;lastx=mx
    end if
-   if(page==10.and.my>=70.and.mx<width-350)then
+   if((page==10.or.(page==12.and.view_mv)).and.my>=62.and.mx<width-340)then
     mv_drag=.true.;mv_lx=mx;mv_ly=my;mv_px=mx;mv_py=my
    end if
   case(2)
-   if(mv_drag.and.page==10)then
+   if(mv_drag.and.(page==10.or.page==12))then
     mv_yaw=mv_yaw+(mx-mv_lx)*.01d0;mv_pitch=max(-1.5d0,min(1.5d0,mv_pitch+(my-mv_ly)*.01d0))
     if(abs(mx-mv_px)+abs(my-mv_py)>4)mv_spin=.false.
     mv_lx=mx;mv_ly=my
@@ -1992,7 +2220,7 @@ contains
    end if
   case(3)
    dragging=.false.
-   if(mv_drag.and.page==10.and.abs(mx-mv_px)+abs(my-mv_py)<=4)call mv_pick(mx,my)
+   if(mv_drag.and.(page==10.or.page==12).and.abs(mx-mv_px)+abs(my-mv_py)<=4)call mv_pick(mx,my)
    mv_drag=.false.
   case(7)
    host_ms=x;host_mb=y;boot_ms=max(boot_ms,x)
@@ -2031,7 +2259,7 @@ contains
   case(5)
    width=max(1280,min(1920,int(x)));height=max(800,min(1200,int(y)))
   case(6)
-   if(page==10)then
+   if(page==10.or.(page==12.and.view_mv))then
     if(value<0)mv_dist=max(15d0,mv_dist/1.12d0)
     if(value>0)mv_dist=min(800d0,mv_dist*1.12d0)
    end if
@@ -2094,7 +2322,7 @@ contains
    boot_dt=max(0d0,min(100d0,ms))/1000
   end if
   anim_t=anim_t+max(0d0,min(200d0,ms))/1000
-  warm_hold=page==1.or.page==7
+  warm_hold=page==1.or.page==7.or.page==11.or.page==12
   if(page==7.and.pv_state==4)then
    replay_t=replay_t+max(0d0,min(200d0,ms))/1000
    if(replay_t>=last_full_elapsed/p_speed)pv_state=3
@@ -2104,8 +2332,8 @@ contains
   if(page==9.and..not.theatre_pause)then
    theatre_dt=max(0d0,min(100d0,ms))/1000;theatre_t=theatre_t+theatre_dt
   end if
-  if(page==10)call mv_tick(max(0d0,min(100d0,ms))/1000)
-  if(page==0.or.page==7.or.page==9.or.page==10.or.(page==1.and.graphmode==3))then
+  if(page==10.or.(page==12.and.view_mv))call mv_tick(max(0d0,min(100d0,ms))/1000)
+  if(page==0.or.page==7.or.page==9.or.page==10.or.page==11.or.page==12.or.(page==1.and.graphmode==3))then
    anim_acc=anim_acc+max(0d0,ms)
    if(anim_acc>=33)then
     anim_acc=0;dirty=.true.

@@ -11,7 +11,8 @@ module r2_framebuffer
   public :: r2_frame_bmp,r2_frame_bmp_size
   public :: allocate_frame,pixel,pixel_raw,aa_line,glyph,text_width,pixels,fw,fh,rectangle,draw_text,rgba,number_text
   public :: render_scale
-  integer, parameter :: render_scale=2,font_divisor=2
+  integer, parameter :: font_divisor=2
+  integer, save :: render_scale=2   ! device pixels per logical pixel (4 on the full-screen views of small windows)
   integer(c_int32_t), allocatable, target, save :: pixels(:)
   integer(c_int8_t), allocatable, target, save :: bmp(:)
   integer, save :: fw=0,fh=0

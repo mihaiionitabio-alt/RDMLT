@@ -19,7 +19,7 @@ module native_theatre
  implicit none
  private
  public :: nscene, theatre_title, draw_theatre_scene, theatre_reset, show_tags, theatre_warm, molecule_banner, molecule_icon, molecule_stage, case_scene_3d, &
-  mv_si, mv_yaw, mv_pitch, mv_dist, mv_show, mv_col, mv_spin, mv_cut, mv_open, mv_draw, mv_pick, mv_clear, mv_tick, &
+  mv_si, mv_yaw, mv_pitch, mv_dist, mv_show, mv_col, mv_spin, mv_cut, mv_clip, mv_open, mv_draw, mv_pick, mv_clear, mv_tick, &
   mv_show_name, mv_col_name
  logical,save :: show_tags=.false.
  integer,parameter :: nscene=9
@@ -39,7 +39,7 @@ module native_theatre
  integer,save :: th_fault=0
  ! ---- molecule viewer (home banner -> full screen)
  integer,save :: mv_si=1,mv_show=1,mv_col=1,mv_np=0,mv_pk(2)=0,mv_dsi=0
- real(c_double),save :: mv_yaw=.6d0,mv_pitch=-.25d0,mv_dist=150,mv_cut=8
+ real(c_double),save :: mv_yaw=.6d0,mv_pitch=-.25d0,mv_dist=150,mv_cut=8,mv_clip=0
  logical,save :: mv_spin=.true.
  real(c_double),allocatable,save :: mv_sx(:),mv_sy(:),mv_sz(:),mv_dna(:)
  real(c_double),save :: mv_g(3)=0,mv_rg=0,mv_rmax=0
@@ -214,16 +214,20 @@ contains
   area=(x(2)-x(1))*(y(3)-y(1))-(x(3)-x(1))*(y(2)-y(1));if(abs(area)<1d-9)return
   i0=max(zx0,floor(minval(x)));i1=min(zx0+zw-1,ceiling(maxval(x)))
   j0=max(zy0,floor(minval(y)));j1=min(zy0+zh-1,ceiling(maxval(y)))
+  ! incremental edge functions along each row; depth-passing pixels are written directly
+  i0=max(i0,0);i1=min(i1,fw-1);j0=max(j0,0);j1=min(j1,fh-1)
   do j=j0,j1
+   w0=((x(2)-(i0+.5d0))*(y(3)-(j+.5d0))-(x(3)-(i0+.5d0))*(y(2)-(j+.5d0)))/area
+   w1=((x(3)-(i0+.5d0))*(y(1)-(j+.5d0))-(x(1)-(i0+.5d0))*(y(3)-(j+.5d0)))/area
    do i=i0,i1
-    w0=((x(2)-(i+.5d0))*(y(3)-(j+.5d0))-(x(3)-(i+.5d0))*(y(2)-(j+.5d0)))/area
-    w1=((x(3)-(i+.5d0))*(y(1)-(j+.5d0))-(x(1)-(i+.5d0))*(y(3)-(j+.5d0)))/area
     w2=1-w0-w1
-    if(w0<-1d-9.or.w1<-1d-9.or.w2<-1d-9)cycle
-    zz=w0*z(1)+w1*z(2)+w2*z(3)
-    if(zz<zb(i-zx0+1,j-zy0+1))then
-     zb(i-zx0+1,j-zy0+1)=real(zz,4);call pixel_raw(i,j,shade,1d0)
+    if(w0>=-1d-9.and.w1>=-1d-9.and.w2>=-1d-9)then
+     zz=w0*z(1)+w1*z(2)+w2*z(3)
+     if(zz<zb(i-zx0+1,j-zy0+1))then
+      zb(i-zx0+1,j-zy0+1)=real(zz,4);pixels(j*fw+i+1)=shade
+     end if
     end if
+    w0=w0+(y(2)-y(3))/area;w1=w1+(y(3)-y(1))/area
    end do
   end do
  end subroutine
@@ -398,6 +402,7 @@ contains
    call tag([0d0,95d0,95d0],'touchscreen',-90d0,40d0)
    call tag([-150d0,60d0,-80d0],'rear: fan grille, power inlet, switch',-60d0,50d0)
    call side_panel_info(x,y,w,h,'Exterior of a 16-well dual-channel cycler','(Open qPCR-style chassis)',tb,tlid,cyc,flu)
+   call cad_credit(x,y,w-th_side,h)
    return
   end if
   woff=0;wsc=.62d0
@@ -466,11 +471,11 @@ contains
   ! callout: what is inside one tube (real structure, PDB 8UCU)
   call screen_of([-61.25d0+17.5d0*2,26d0+drop,15d0],tx,tz)
   woff=0;wsc=1
-  if(show_tags)call seg(tx,tz,x+28+170d0,y+h-250d0,c_orange,1.2d0)
+  if(show_tags)call seg(tx,tz,x+28+170d0,y+h-290d0,c_orange,1.2d0)
   if(th_side<=0)then
-   call set_clip(0d0,0d0,1d4,1d4);return    ! compact (case page): no callout, no side panel
+   call set_clip(0d0,0d0,1d4,1d4);return   ! compact (previews, full-screen views): sources are listed by the page
   end if
-  call molecule_inset(x+20,y+h-260,340d0,240d0,1,t,'inside the tube: polymerase on DNA (PDB 8UCU)',.false.)
+  call molecule_inset(x+20,y+h-300,340d0,240d0,1,t,'inside the tube: polymerase on DNA (PDB 8UCU)',.false.)
   ! side panel
   px=x+w-290;pw=280
   call set_clip(0d0,0d0,1d4,1d4)
@@ -487,6 +492,7 @@ contains
   call txt('photodiode -> transimpedance -> ADC',px+12,yy+92,c_purple)
   call txt('Software 3-D renderer: quaternion',px+12,y+h-80,c_ink);call txt('camera, depth buffer, flat shading.',px+12,y+h-60,c_ink)
   call txt('Layout generic, not a specific product.',px+12,y+h-36,c_orange)
+  call cad_credit(x,y,w-th_side,h)
  end subroutine
 ! @nativefn NR2-THE-F0041
  subroutine chassis(lift,cutaway,tb,tlid)
@@ -1877,7 +1883,7 @@ contains
   integer,intent(in)::si
   mv_si=max(1,min(st_count,si));mv_np=0;mv_pk=0
   call mv_prepare()
-  mv_dist=mv_rmax*2.0d0;mv_yaw=.6d0;mv_pitch=-.25d0
+  mv_dist=mv_rmax*2.0d0;mv_yaw=.6d0;mv_pitch=-.25d0;mv_clip=0
  end subroutine
 ! @nativefn NR2-THE-F0151
  subroutine mv_prepare()
@@ -2002,6 +2008,10 @@ contains
    end select
    if(any(mv_pk(1:mv_np)==i))col=rgba(255,255,120,255)
    p=st_xyz(:,i)/10d0-mv_g
+   if(mv_clip>0)then                       ! slice: front clipping plane through the molecule
+    call to_depth(p,d)
+    if(d<mv_dist-mv_rmax+2*mv_rmax*mv_clip)cycle
+   end if
    call zsphere(p,r,col)
    call screen_of(p,sx,sy);mv_sx(i)=sx;mv_sy(i)=sy
    call to_depth(p,mv_sz(i))
@@ -2042,6 +2052,7 @@ contains
    if(is_prot(st_kind(mv_pk(1))))call txt('nearest DNA atom '//trim(num(mv_dna(mv_pk(1)),1))//' A',px+12,yy*1d0,c_ink)
    yy=yy+20
   end if
+  if(mv_clip>0)call txt('Slice: front '//trim(num(100*mv_clip,0))//' % removed',px+12,y+h-144,c_orange)
   call txt('Drag: rotate   Wheel: zoom',px+12,y+h-124,c_purple)
   call txt('Click: select atom (two = distance)',px+12,y+h-104,c_purple)
   call txt('wwPDB data, CC0 1.0',px+12,y+h-84,c_purple)
@@ -2155,6 +2166,14 @@ contains
    call txt('Normal run (no fault)',x+10,y+8,c_cyan)
   end if
   call frame_rect(x,y,w,h,c_purple,1d0)
+ end subroutine
+! @nativefn NR2-THE-F0161
+ subroutine cad_credit(x,y,w,h)
+  ! Source of the instrument form, shown on every 3D instrument view.
+  real(c_double),intent(in)::x,y,w,h
+  call set_clip(0d0,0d0,1d4,1d4)
+  call txt('Source: Chai Open qPCR [CAD model], GrabCAD Community Library',x+10,y+h-40,rgba(185,170,200,255))
+  call txt('https://grabcad.com/library/chai-open-qpcr-1',x+10,y+h-22,rgba(185,170,200,255))
  end subroutine
 ! @nativefn NR2-THE-F0134
  subroutine theatre_warm()

@@ -2,8 +2,8 @@
 ! References page data. Generated from the project reference list (UTF-8 text as achar byte sequences).
 module native_references
  implicit none
- integer, parameter :: nref=152, ref_len=946
- integer, parameter :: ref_section(nref)=[1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,3,3,3,3,3,3,3,3,3,3,3]
+ integer, parameter :: nref=157, ref_len=946
+ integer, parameter :: ref_section(nref)=[1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,3,3,3,3,3,3,3,3,3,3,3]
  character(len=48), parameter :: section_title(3)=[character(len=48):: "Literature, standards and repositories", &
   "Software and specifications used in this edition","Edition notes and controls"]
  character(len=ref_len), parameter :: ref_text(nref)=[character(len=ref_len):: &
@@ -444,10 +444,10 @@ module native_references
    "NF-kappaB p52 homodimer-DNA complex at 2.1 A resolution. EMBO Journal, 16, 7078. Used fo" // &
    "r: structure view 3 (PDB entry 1A3Q, wwPDB data CC0 1.0), a transcription factor shown a" // &
    "s a general protein-DNA teaching scene.", &
-  "Jin, X., Gewirth, D.T. and Geiger, J.H. (2003). High resolution structure of a yeast TFI" // &
-   "IA/TBP/TATA-box DNA complex. PDB entry 1RM1 (wwPDB data CC0 1.0). Used for: structure vi" // &
-   "ew 4, TATA-binding protein and TFIIA on bent DNA, shown as a general protein-DNA teachin" // &
-   "g scene.", &
+  "Jin, X., Gewirth, D.T. and Geiger, J.H. High resolution structure of a yeast TFIIA/TBP/T" // &
+   "ATA-box DNA complex. PDB entry 1RM1, to be published, https://doi.org/10.2210/pdb1RM1/pd" // &
+   "b (wwPDB data CC0 1.0). Used for: structure view 4, TATA-binding protein and TFIIA on be" // &
+   "nt DNA, shown as a general protein-DNA teaching scene.", &
   "Yang, X., Fu, Q. and Heidrich, W. (2024). Curriculum learning for ab initio deep learned" // &
    " refractive optics. Nature Communications, 15(1), 6572. Used for: background to the lens" // &
    " and ray-tracing concepts in the optics animation (DeepLens project, below).", &
@@ -512,6 +512,25 @@ module native_references
    "th two thermistors, two Peltier modules, heat spreader, extruded heat sink, 60 mm fan, t" // &
    "wo dual-channel optics modules with 520/24 and 585/24 band-pass filters and photodiode b" // &
    "oards, LED board). Shapes are simplified; no CAD geometry is reproduced.", &
+  "Chai Open qPCR [CAD model]. GrabCAD Community Library. Available at: https://grabcad.com" // &
+   "/library/chai-open-qpcr-1 (link given by the chaipcr project, GitHub issue chaibio/chaip" // &
+   "cr #44). Used for: the form and internal assembly order of the 3D instrument views (cite" // &
+   "d on the full-screen views); shapes are simplified and no CAD geometry is reproduced.", &
+  "Chai Biotechnologies (@ChaiBio). Open qPCR Real-Time PCR Thermocycler [3D mesh preview]." // &
+   " Sketchfab, 12 November 2014. Available at: https://sketchfab.com/3d-models/open-qpcr-re" // &
+   "al-time-pcr-thermocycler-3854ffd8d9d44b3caa3951366ab3e87a. Used for: visual reference of" // &
+   " the exterior (chassis, lid housing, touchscreen).", &
+  "Chai Biotechnologies. Open qPCR User Manual. Available at: https://static.chaibio.com/sp" // &
+   "ree/products/114/Open_qPCR_User_Manual.pdf, and Chai PCR GitHub repository, https://gith" // &
+   "ub.com/chaibio/chaipcr. Used for: specifications and software conventions of the instrum" // &
+   "ent shown.", &
+  "GaudiLabs (Gaudenz, U.). qPocketPCR: the ultra-compact real-time PCR thermocycler. Pocke" // &
+   "tPCR project. Available at: https://gaudi.ch/PocketPCR/index.php/qpocketpcr-quantitative" // &
+   "-real-time-pcr/. Used for: background on open, low-cost real-time PCR hardware.", &
+  "Mulberry, G., White, K.A., Vaidya, M., Sugaya, K. and Kim, B.N. (2017). 3D printing and " // &
+   "milling a real-time PCR device for infectious disease diagnostics. PLOS ONE. https://doi" // &
+   ".org/10.1371/journal.pone.0179133 (PMC5460903). Used for: background on 3D-printed real-" // &
+   "time PCR instruments.", &
   "Chai Biotechnologies Inc. chaipcr instrument software (GitHub chaibio/chaipcr, Apache-2." // &
    "0): protocol editor and run screens. Used for: the run-page conventions in the Fortran e" // &
    "dition (HOLDING / CYCLING stages, step temperature and hold time, gather-data marker, ST" // &

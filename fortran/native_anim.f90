@@ -64,6 +64,13 @@ contains
   integer::i,j,i0,i1,j0,j1
   i0=max(nint(x*render_scale),nint(cb(1)*render_scale));i1=min(nint((x+w)*render_scale),nint(cb(3)*render_scale))-1
   j0=max(nint(y*render_scale),nint(cb(2)*render_scale));j1=min(nint((y+h)*render_scale),nint(cb(4)*render_scale))-1
+  if(ibits(c,24,8)==255)then              ! opaque: fill whole rows
+   i0=max(i0,0);i1=min(i1,fw-1)
+   do j=max(j0,0),min(j1,fh-1)
+    if(i1>=i0)pixels(j*fw+i0+1:j*fw+i1+1)=c
+   end do
+   return
+  end if
   do j=j0,j1
    do i=i0,i1
     call pixel_raw(i,j,c,1d0)
@@ -161,23 +168,29 @@ contains
  end subroutine
 ! @nativefn NR2-ANI-F0011
  subroutine txt(s,x,y,c)
+  ! Glyphs are drawn at one device pixel per font pixel at render scale 2 and repeated
+  ! (render_scale/2 times) at higher scales, so text keeps its size on the 4K views.
   character(len=*),intent(in)::s
   real(c_double),intent(in)::x,y
   integer(c_int32_t),intent(in)::c
-  integer::i,g,xx,yy,advance,level,px,py
-  advance=0
+  integer::i,g,xx,yy,advance,level,px,py,m,a,b
+  advance=0;m=max(1,render_scale/2)
   do i=1,len_trim(s)
    g=glyph(iachar(s(i:i)))
    do yy=0,font_height-1
     do xx=0,font_width-1
      level=int(iand(shiftr(glyph_rows((g-1)*font_height+yy+1),2*xx),3_c_int64_t))
      if(level==0)cycle
-     px=nint(x*render_scale)+advance+xx;py=nint(y*render_scale)+yy
-     if(px<cb(1)*render_scale.or.px>cb(3)*render_scale.or.py<cb(2)*render_scale.or.py>cb(4)*render_scale)cycle
-     call pixel_raw(px,py,c,level/3d0)
+     do a=0,m-1
+      do b=0,m-1
+       px=nint(x*render_scale)+advance+xx*m+a;py=nint(y*render_scale)+yy*m+b
+       if(px<cb(1)*render_scale.or.px>cb(3)*render_scale.or.py<cb(2)*render_scale.or.py>cb(4)*render_scale)cycle
+       call pixel_raw(px,py,c,level/3d0)
+      end do
+     end do
     end do
    end do
-   advance=advance+glyph_advance(g)
+   advance=advance+glyph_advance(g)*m
   end do
  end subroutine
 ! @nativefn NR2-ANI-F0012
