@@ -39,7 +39,7 @@ module native_model
   ev_monitor_stop=13,ev_interlock=14,ev_time_limit=15,ev_host_crash=16,ev_setup_rejected=17
  type(run_t), save :: current,history(maxruns)
  integer, save :: nh=0,selected=0,phase=0,remaining=0
- integer, save :: p_prog=1,p_runs=1,p_ext=3,p_rep=3,p_copies=30000,p_threshold=150,p_seed=11,p_fault=0,p_speed=1000
+ integer, save :: p_prog=1,p_runs=1,p_ext=3,p_rep=3,p_copies=30000,p_threshold=150,p_seed=11,p_fault=0,p_speed=168
  logical, save :: running=.false.
  real(c_double),save :: plant(19),pid(4,2),chem(34,maxw),assay(14,maxw),probe(6,maxw),camera(9,maxw),chem2(34,maxw),assay2(14,maxw),probe2(6,maxw),camera2(9,maxw)
  integer, save :: hf_tick=0
@@ -58,6 +58,9 @@ module native_model
  ! Multi-case selection: number of runs requested per scenario code (0 = normal run).
  integer,save :: sel_n(0:51)=0,sel_last(0:51)=1,qn=0,qpos=0,qcode(52)=0,qreps(52)=0,q_saved=0
  logical,save :: queue_active=.false.
+ ! Real (wall-clock) seconds of the acquisition in progress and the instrument time of the last
+ ! completed run, used to show real versus simulated time (about 30 s per run at the default 168x).
+ real(c_double),save :: wall_run=0,last_full_elapsed=5040
 contains
 ! @nativefn NR2-M01-F0001
  function integer_text(v) result(s)
@@ -287,6 +290,7 @@ contains
   current%ne=p_ext;current%nr=p_rep;current%copies=p_copies;current%threshold=p_threshold
   current%seed=p_seed+nh*7919;current%fault=p_fault;current%scenario=p_scenario
   if(preview_mode)current%seed=p_seed
+  if(.not.preview_mode)wall_run=0
   if(p_scenario>0)current%params=scenario_bank(:,p_scenario)
   p=current%params
   if(p_scenario==20)current%planned_cycles=nint(p(2))
@@ -408,6 +412,7 @@ contains
   if(preview_mode)then
    call apply_record_scenario(current);call analyse(current);call preview_filed();return
   end if
+  if(status==1.and.current%ncy>=45)last_full_elapsed=current%elapsed
   if(status==1)then
    call log_event(ev_run_complete,0,0)
   else if(status==5)then
@@ -692,6 +697,7 @@ contains
    if(remaining>0)call begin_run()
    return
   end if
+  wall_run=wall_run+min(1000d0,max(0d0,wall_ms))/1000
   budget=budget+min(1000d0,max(0d0,wall_ms))*p_speed/1000
   steps=min(2000,int(budget/.05d0));budget=budget-steps*.05d0
   do i=1,steps

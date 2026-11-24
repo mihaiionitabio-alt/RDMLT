@@ -18,7 +18,13 @@ module native_anim
  use r2_oligo, only: r2_tm_nn
  implicit none
  private
- public :: anim_helix_banner, draw_fault_scene, scene_family, draw_structure_scene
+ public :: anim_helix_banner, draw_fault_scene, scene_family, draw_structure_scene, draw_cycler
+ type, public :: cycler_t
+  real(c_double) :: tz(2)=25,tsens(2)=25,tlid=25,tsink=25,duty(2)=0,lidduty=0,edge=0
+  real(c_double) :: led=1,glow(16)=0,liquid(16)=1,lift=0,lidopen=0,misalign=0,seal=1,autofl=0,xtalk=0
+  real(c_double) :: sat=0,noise=0,dirt=0,condense=0,reading_level=0
+  integer :: bubbles=0,droplets=0,nospin=0,mux=1,reading=0,fanstall=0
+ end type
  real(c_double),save :: cb(4)=[0d0,0d0,1d4,1d4]
  real(c_double),parameter :: pi=3.141592653589793d0
  integer(c_int32_t),parameter :: c_bg=int(z'FF10090D',c_int32_t),c_orange=int(z'FF649BFF',c_int32_t)
@@ -256,195 +262,285 @@ contains
 ! ------------------------------------------------------------------ instrument
 ! @nativefn NR2-ANI-F0040
  subroutine scene_instrument(code,p,x,y,w,h,t)
+  ! Fault scenes on the generic 16-tube cycler. One 6 s loop: 0-2 s denaturation at 95 C,
+  ! 2-6 s annealing at 60 C with the per-tube LED read (photodiodes sample LED on / LED off).
   integer,intent(in)::code
   real(c_double),intent(in)::p(6),x,y,w,h,t
-  integer,parameter::nwell=8
-  real(c_double)::ph,tblock,tsens,lidt,led,cyc,read,px0,pw,wx,wt,yl,yp,yb,camx,camy,mx0,my0,fan,lift,liq,gl,ang
-  real(c_double)::trans,zone(2),lidopen,fx,fy,mfx
-  integer::i,k
-  integer(c_int32_t)::lc,glc
-  ! 6 s loop: 0-2 s denaturation at 95 C, 2-6 s annealing at 60 C with the camera read.
+  type(cycler_t)::s
+  real(c_double)::ph,tb,cyc,g
+  integer::i
   ph=mod(t,6d0);cyc=floor(t/6d0)
   if(ph<2)then
-   tblock=60+35*min(1d0,ph/.6d0)
+   tb=60+35*min(1d0,ph/.6d0)
   else
-   tblock=95-35*min(1d0,(ph-2)/.8d0)
+   tb=95-35*min(1d0,(ph-2)/.8d0)
   end if
-  read=0;if(ph>3.2d0.and.ph<5.6d0)read=1
-  zone=tblock;lidt=105;led=1;lift=0;lidopen=0;trans=1;tsens=tblock
+  s%tz=tb;s%tsens=tb;s%tlid=105;s%tsink=32;s%duty=0;s%lidduty=.3d0
+  if(ph<2)then
+   s%duty=.8d0
+  else if(ph<2.8d0)then
+   s%duty=-.8d0
+  else
+   s%duty=.15d0
+  end if
+  s%reading=0;if(ph>3.2d0.and.ph<5.6d0)s%reading=1
+  s%mux=1+mod(int((ph-3.2d0)/2.4d0*16*3),16)
+  g=min(1d0,.12d0+mod(cyc,8d0)/8)
+  s%glow=g;s%reading_level=g
   select case(code)
+  case(1)
+   s%edge=p(1)
   case(2)
-   zone(1)=tblock-(1-p(1))*abs(tblock-60)*.8d0
+   s%duty(1)=s%duty(1)*p(1);s%tz(1)=tb-(1-p(1))*abs(tb-60)*.8d0
   case(3)
-   lidt=p(1)
+   s%tlid=p(1);s%condense=1
+  case(4)
+   s%misalign=1-p(1)
+  case(5,17)
+   s%xtalk=p(1)
   case(6)
-   led=p(1)
+   s%led=p(1)
   case(7)
-   led=p(2)+(p(1)-p(2))*mod(t/30d0,1d0)
+   s%led=p(2)+(p(1)-p(2))*mod(t/30d0,1d0)
+  case(8)
+   s%sat=1
+  case(9)
+   s%noise=p(1)
+  case(10)
+   s%dirt=1-p(1)
   case(11,28)
-   lift=6
+   s%lift=6
   case(12)
-   tsens=tblock-min(p(2),p(1)*mod(t,24d0))
+   s%tsens=tb-min(p(2),p(1)*mod(t,24d0))
+  case(13)
+   s%fanstall=1;s%tsink=60+10*sin(t)
   case(14)
-   lidopen=min(1d0,max(0d0,(mod(t,12d0)-4)/1.5d0))
+   s%lidopen=min(1d0,max(0d0,(mod(t,12d0)-4)/1.5d0))
   case(29)
-   trans=p(1)
+   s%seal=p(1)
+  case(30)
+   s%autofl=1
+  case(39)
+   s%liquid(1)=max(.35d0,1-p(1)*8*mod(t/18d0,1d0));s%liquid(8)=s%liquid(1)
+  case(41)
+   s%bubbles=max(1,nint(p(1)))
+  case(45)
+   s%droplets=1
+  case(46)
+   s%nospin=1
   end select
-  px0=x+70;pw=w-140;wx=pw/nwell;yl=y+102;yp=y+120;yb=y+168
-  camx=x+w*.70d0;camy=y+14;mx0=x+w/2-95;my0=y+70
-  ! heat sink, Peltier zones, block
-  call box(px0-10,yb+34,pw+20,6d0,rgba(120,120,135,255))
-  do i=0,int((pw+20)/9)
-   call box(px0-10+i*9d0,yb+40,4d0,26d0,rgba(150,150,165,255))
-  end do
-  if(code==13)then
-   do i=0,int((pw+20)/9)
-    call box(px0-10+i*9d0,yb+40,4d0,26d0,mix(rgba(150,150,165,255),rgba(230,70,50,255),.3d0+.3d0*sin(t*3)))
+  if(code==10)then
+   do i=4,5
+    s%glow(i)=s%glow(i)*p(1)
    end do
   end if
+  call draw_cycler(s,x,y,w,h,t)
+  call txt(trim(fault_caption(code,p)),x+8,y+6,c_orange)
+  call txt(phase_text(ph),x+8,y+h-20,c_cyan)
+ end subroutine
+! @nativefn NR2-ANI-F0042
+ function fault_caption(code,p) result(s)
+  integer,intent(in)::code
+  real(c_double),intent(in)::p(6)
+  character(len=96)::s
+  select case(code)
+  case(0)
+   s='Generic 16-tube cycler: one LED and photodiode channel per tube'
+  case(1)
+   s='end tubes run '//trim(num(p(1),1))//' C colder than the centre of the block'
+  case(2)
+   s='Peltier zone 1 pumps '//trim(num(100*p(1),0))//'% of nominal: slow ramps on the left half'
+  case(3)
+   s='lid at '//trim(num(p(1),0))//' C: condensation forms under the caps'
+  case(4)
+   s='lid height wrong: LED spots miss the tube centres, far tubes read low'
+  case(5,17)
+   s='emission filter leaks: FAM light reaches the second channel'
+  case(6)
+   s='LED output '//trim(num(100*p(1),0))//'%: lower counts in every tube'
+  case(7)
+   s='LED output drifts during the run'
+  case(8)
+   s='detector gain too high: readings clip at ADC full scale'
+  case(9)
+   s='detector noise x'//trim(num(p(1),0))
+  case(10)
+   s='spill on the excitation filter: tubes 4-5 dim and noisy'
+  case(11,28)
+   s='tubes not seated: air gap above the block, slow heat transfer'
+  case(12)
+   s='thermistor drifts: the controller follows a wrong reading'
+  case(13)
+   s='fan stalled: heat sink overheats, interlock stops the run'
+  case(14)
+   s='lid opened during the run: heating stops, interlock'
+  case(29)
+   s='caps not optically clear: most light is blocked'
+  case(30)
+   s='tube plastic autofluoresces: raised baseline'
+  case(39)
+   s='end tubes evaporate through a poor seal'
+  case(41)
+   s='bubbles in the tubes scatter the light'
+  case(45)
+   s='a droplet on the tube wall joins the reaction late'
+  case(46)
+   s='liquid left on the walls: tubes not spun down'
+  case default
+   s=''
+  end select
+ end function
+! @nativefn NR2-ANI-F0043
+ subroutine draw_cycler(s,x,y,w,h,t)
+  ! Generic layout (not any specific product): long view of one 8-tube strip with the lid
+  ! stack (LED board, excitation filter, heated lid), sample block with two thermistors, two
+  ! Peltier zones, copper spreader, finned heat sink and fan; section A-A through a tube pair
+  ! showing the optical path to the side photodiode boards; detector timing strip.
+  type(cycler_t),intent(in)::s
+  real(c_double),intent(in)::x,y,w,h,t
+  real(c_double)::lw,x0,pw,wx,yled,yfil,ylid,ycap,ytube,yblk,ypel,ycu,yfin,yfe,cx,tw,ly,liq,lo,ang,sx0,sw,bx,by,v,dx
+  real(c_double)::lidlift,detx,dety,detw,deth,ux,vv
+  integer::i,k,n
+  integer(c_int32_t)::c,ledc,emc
+  lw=w*.64d0;x0=x+84;pw=lw-112;wx=pw/8
+  lidlift=s%lidopen*46
+  yled=y+30-lidlift;yfil=yled+10;ylid=yfil+8;ycap=y+68;ytube=ycap+7
+  yblk=y+86;ypel=yblk+48;ycu=ypel+13;yfin=ycu+5;yfe=yfin+34
+  ! ---- heat sink, copper spreader, Peltier zones, block
+  call box(x0-8,ycu,pw+16,5d0,rgba(205,120,70,255))
+  call txt('Cu',x0-30,ycu-7,c_ink)
+  n=int((pw+16)/8)
+  do i=0,n
+   c=rgba(150,150,165,255)
+   if(s%tsink>45)c=mix(c,rgba(230,70,50,255),min(1d0,(s%tsink-45)/20))
+   call box(x0-8+i*8d0,yfin,4d0,yfe-yfin,c)
+  end do
+  call txt('heat sink',x0-76,yfin+8,c_ink)
+  ang=t*14;if(s%fanstall>0)ang=0
+  call disc(x+lw-14,yfin+17,15d0,rgba(55,48,58,255),1d0)
+  do k=0,2
+   call seg(x+lw-14,yfin+17,x+lw-14+13*cos(ang+k*2*pi/3),yfin+17+13*sin(ang+k*2*pi/3),c_ink,3d0)
+  end do
+  if(s%fanstall==0)then
+   do k=0,2
+    call dash(x+lw-34,yfin+6+k*11d0,x0,yfin+6+k*11d0,rgba(120,170,230,255),1d0,t*60)
+   end do
+  end if
+  call txt('fan',x+lw-24,yfe+2,c_ink)
   do k=1,2
-   gl=1;if(code==2.and.k==1)gl=p(1)
-   call box(px0+(k-1)*pw/2+2,yb+22,pw/2-4,11d0,mix(rgba(60,60,70,255),rgba(90,170,255,255),gl))
-   call txt('Peltier '//achar(48+k),px0+(k-1)*pw/2+8,yb+21,c_bg)
-   if(ph<2)then
-    call arrow(px0+(k-.5d0)*pw/2,yb+30,px0+(k-.5d0)*pw/2,yb+20-10*gl,rgba(235,90,60,255),1.5d0)
-   else
-    call arrow(px0+(k-.5d0)*pw/2,yb+18,px0+(k-.5d0)*pw/2,yb+30+6*gl,rgba(90,150,255,255),1.5d0)
+   v=s%duty(k)
+   c=mix(rgba(60,60,72,255),rgba(235,90,60,255),max(0d0,v))
+   if(v<0)c=mix(rgba(60,60,72,255),rgba(80,150,255,255),-v)
+   call box(x0+(k-1)*pw/2+2,ypel,pw/2-4,11d0,c)
+   call txt('Peltier '//achar(48+k)//'   T'//achar(48+k)//' '//trim(num(s%tsens(k),1))//' C',x0+(k-1)*pw/2+8,ypel-1,c_bg)
+   if(abs(v)>.05d0)then
+    if(v>0)then
+     call arrow(x0+(k-.5d0)*pw/2,ypel+6,x0+(k-.5d0)*pw/2,ypel-8-10*v,rgba(255,120,80,255),1.5d0)
+    else
+     call arrow(x0+(k-.5d0)*pw/2,ypel-4,x0+(k-.5d0)*pw/2,ypel+14-8*v,rgba(110,170,255,255),1.5d0)
+    end if
    end if
   end do
-  if(code==2)call txt('70%',px0+pw/4-12,yb+46,c_ink)
-  do i=0,nwell-1
-   wt=zone(1+min(1,(2*i)/nwell))
-   if(code==1.and.(i==0.or.i==nwell-1))wt=wt-p(1)
-   call box(px0+i*wx,yb,wx+.5d0,20d0,tcol(wt))
+  do i=0,7
+   tw=s%tz(1+i/4)
+   if(i==0.or.i==7)tw=tw-s%edge
+   call box(x0+i*wx,yblk,wx+.5d0,46d0,tcol(tw))
   end do
-  call txt('Block '//trim(num(tblock,0))//' C',px0+4,yb+3,c_bg)
-  if(code==1)then
-   call txt('edge -'//trim(num(p(1),1))//' C',px0+pw-wx-30,yb+3,c_bg)
-   call txt('edge wells run colder than the centre',x+8,y+6,c_orange)
-  end if
-  if(code==2)call txt('zone 1 Peltier weak: slow ramps',x+8,y+6,c_orange)
-  if(code==12)call txt('controller follows a drifting sensor',x+8,y+6,c_orange)
-  ! temperature sensor
-  call disc(px0+pw-14,yb+10,4d0,c_ink,1d0)
-  call txt('sensor',x+8,yb+2,c_ink);call txt(trim(num(tsens,1))//' C',x+8,yb+20,c_ink)
-  if(code==12)call txt('true '//trim(num(tblock,1))//' C',x+8,yb+38,c_orange)
-  ! fan
-  fan=t*12;if(code==13.and.mod(t,10d0)>3)fan=fan*0
-  call disc(x+w-34,yb+52,15d0,rgba(60,50,60,255),1d0)
-  do k=0,2
-   ang=fan+k*2*pi/3
-   call seg(x+w-34,yb+52,x+w-34+13*cos(ang),yb+52+13*sin(ang),c_ink,3d0)
+  call txt('block',x0-50,yblk+18,c_ink)
+  ! two thermistors, one per Peltier zone, between tubes 2-3 and 6-7
+  do k=1,2
+   bx=x0+(4*k-2)*wx;by=yblk+34
+   call disc(bx,by,3.5d0,c_ink,1d0)
   end do
-  if(code==13)then
-   call txt('fan STALLED',x+w-100,yb+70,c_orange)
-  else
-   call txt('fan',x+w-44,yb+70,c_ink)
-  end if
-  ! plate (raised when not seated / wrong plastic)
-  do i=0,nwell-1
-   fx=px0+i*wx+wx/2;liq=1
-   if(code==39.and.(i==0.or.i==nwell-1))liq=max(.35d0,1-p(1)*8*mod(t/18d0,1d0))
-   call seg(fx-wx*.32d0,yp-lift,fx-wx*.18d0,yb-4-lift,rgba(200,200,215,255),1.5d0)
-   call seg(fx+wx*.32d0,yp-lift,fx+wx*.18d0,yb-4-lift,rgba(200,200,215,255),1.5d0)
-   call seg(fx-wx*.18d0,yb-4-lift,fx+wx*.18d0,yb-4-lift,rgba(200,200,215,255),1.5d0)
-   ! reaction liquid and its fluorescence (grows cycle by cycle)
-   gl=read*min(1d0,.15d0+mod(cyc,8d0)/8)*led*trans
-   if(code==4)gl=gl*(1-(1-p(1))*real(i,c_double)/(nwell-1))
-   if(code==10.and.(i==3.or.i==4))gl=gl*p(1)
-   glc=mix(rgba(40,90,60,255),rgba(110,255,140,255),gl)
-   call box(fx-wx*.2d0,yb-4-lift-26*liq,wx*.4d0,26*liq,glc)
-   if(gl>0)call glow(fx,yb-16-lift,wx*.45d0,rgba(110,255,140,255),.5d0*gl)
-   if(code==30)call glow(fx,yb-12-lift,wx*.5d0,rgba(255,240,140,255),.35d0)
-   if(code==41.and.(i==2.or.i==5))then
-    k=nint(p(1))
-    do k=1,max(1,nint(p(1)))
-     call disc(fx-4+6*k-6,yb-10-lift-mod(t*12+k*9,22d0),3.5d0,c_ink,.8d0)
+  ! ---- tubes: cap, conical body, liquid with fluorescence
+  do i=0,7
+   cx=x0+i*wx+wx/2
+   liq=s%liquid(i+1)
+   c=rgba(215,215,228,255);if(s%seal<1)c=mix(rgba(120,120,125,255),c,s%seal)
+   call box(cx-wx*.34d0,ycap-s%lift,wx*.68d0,6d0,c)
+   call seg(cx-wx*.3d0,ytube-s%lift,cx-wx*.12d0,yblk+40-s%lift,rgba(200,200,215,255),1.5d0)
+   call seg(cx+wx*.3d0,ytube-s%lift,cx+wx*.12d0,yblk+40-s%lift,rgba(200,200,215,255),1.5d0)
+   call seg(cx-wx*.12d0,yblk+40-s%lift,cx+wx*.12d0,yblk+40-s%lift,rgba(200,200,215,255),1.5d0)
+   v=s%glow(i+1)*s%led*s%seal*(1-s%misalign*i/7d0)*(.35d0+.65d0*s%reading)
+   emc=mix(rgba(40,90,60,255),rgba(110,255,140,255),v)
+   call box(cx-wx*.16d0,yblk+38-s%lift-24*liq,wx*.32d0,24*liq,emc)
+   if(v>0)call glow(cx,yblk+28-s%lift,wx*.45d0,rgba(110,255,140,255),.5d0*v)
+   if(s%autofl>0)call glow(cx,ytube+6-s%lift,wx*.4d0,rgba(255,240,140,255),.3d0)
+   if(s%condense>0)call disc(cx+2*sin(t+i),ycap+8+mod(t*6+i*5,10d0),2.2d0,rgba(150,210,255,255),.9d0)
+   if(s%bubbles>0.and.(i==2.or.i==5))then
+    do k=1,s%bubbles
+     call disc(cx-3+5*(k-1),yblk+34-s%lift-mod(t*12+k*9,22d0),3d0,c_ink,.8d0)
     end do
    end if
-   if(code==45.and.(i==1.or.i==6))then
-    call disc(fx+wx*.24d0,yp+6-lift+min(30d0,max(0d0,(mod(t,12d0)-6)*8)),3d0,rgba(110,200,255,255),1d0)
-   end if
-   if(code==46)then
-    call disc(fx-wx*.22d0,yp+8-lift,3d0,rgba(110,200,255,255),1d0)
-    call disc(fx+wx*.2d0,yp+12-lift,2.5d0,rgba(110,200,255,255),1d0)
+   if(s%droplets>0.and.(i==1.or.i==6))call disc(cx+wx*.22d0,ytube+4+min(28d0,max(0d0,(mod(t,12d0)-6)*7)),2.6d0, &
+    rgba(110,200,255,255),1d0)
+   if(s%nospin>0)then
+    call disc(cx-wx*.2d0,ytube+6,2.6d0,rgba(110,200,255,255),1d0);call disc(cx+wx*.18d0,ytube+10,2.2d0,rgba(110,200,255,255),1d0)
    end if
   end do
-  call txt('Plate',px0-48,yp+14-lift,c_ink)
-  if(lift>0)call txt('plate not seated: gap above the block, slow heat transfer',x+8,y+6,c_orange)
-  ! sealing film
-  lc=rgba(220,220,230,255);if(code==29)lc=rgba(140,140,140,255)
-  call box(px0,yp-3-lift,pw,3d0,lc)
-  if(code==39)then
-   call glow(px0+wx/2,yp-8,14d0,c_ink,.4d0+.3d0*sin(t*4));call glow(px0+pw-wx/2,yp-8,14d0,c_ink,.4d0+.3d0*sin(t*4))
-  end if
-  ! heated lid (swings open in case 14)
-  if(lidopen>0)then
-   call seg(px0,yl,px0+pw*cos(lidopen*1.1d0),yl-pw*sin(lidopen*1.1d0),tcol(lidt),7d0)
-   call txt('lid opened during the run: heating stops, interlock',x+8,y+6,c_orange)
-  else
-   call box(px0,yl,pw,10d0,tcol(lidt))
-   call txt('Heated lid '//trim(num(lidt,0))//' C',px0+pw/2-55,yl-1,c_bg)
-  end if
-  if(code==3)then
-   do i=0,nwell-1
-    call disc(px0+i*wx+wx/2+3*sin(t+i),yp+4+mod(t*6+i*5,12d0),2.5d0,rgba(150,210,255,255),.9d0)
-   end do
-   call txt('lid too cool: condensation drips into the wells',x+8,y+6,c_orange)
-  end if
-  ! optics: LED -> excitation filter -> dichroic -> plate; plate -> emission filter -> camera
-  call glow(x+28,my0,26*max(.1d0,led),rgba(130,200,255,255),.8d0*min(1d0,led))
-  call ball(x+28,my0,9d0,mix(rgba(60,60,80,255),rgba(140,210,255,255),min(1d0,led)))
-  call txt('LED',x+14,my0+14,c_ink)
-  if(code==6.or.code==7)then
-   call txt(trim(num(100*led,0))//'%',x+14,my0+28,c_orange)
-   call txt('weaker excitation: lower counts in every well',x+8,y+6,c_orange)
-  end if
-  if(code==29)call txt('non-optical seal: most light is blocked',x+8,y+6,c_orange)
-  if(code==13)call txt('fan stalled: heat sink overheats, interlock stops the run',x+8,y+6,c_orange)
-  if(code==14.and.lidopen<=0)call txt('lid will be opened during the run',x+8,y+6,c_orange)
-
-  call box(x+56,my0-12,5d0,24d0,rgba(90,140,255,255));call txt('Ex',x+50,my0+14,c_ink)
-  mfx=0;if(code==4)mfx=18
-  call seg(mx0-14,my0+14,mx0+14,my0-14,rgba(200,230,255,255),3d0)
-  call txt('dichroic',mx0-26,my0-30,c_ink)
-  if(read>0)then
-   call dash(x+40,my0,mx0,my0,rgba(120,180,255,255),2d0*min(1d0,led),t*80)
-   do i=0,nwell-1,2
-    call dash(mx0,my0,px0+i*wx+wx/2+mfx,yp-6,rgba(120,180,255,255),1.2d0*min(1d0,led),t*80)
-   end do
-   do i=1,nwell-1,2
-    gl=min(1d0,.15d0+mod(cyc,8d0)/8)*led*trans
-    call dash(px0+i*wx+wx/2,yp-6,camx,camy+46,rgba(110,255,140,255),1.2d0*gl+.2d0,t*80)
-   end do
-  end if
-  ! emission filter wheel and camera
-  call disc(camx,camy+50,11d0,rgba(70,70,90,255),1d0)
-  call disc(camx,camy+50,6d0,rgba(110,255,140,255),1d0)
-  if(code==5.or.code==17)call disc(camx+5,camy+50,6d0,rgba(255,220,70,255),.8d0)
-  call txt('Em',camx+14,camy+44,c_ink)
-  call box(camx-36,camy,72d0,30d0,rgba(50,50,65,255));call txt('CCD camera',camx-32,camy+8,c_ink)
-  if(read>0)call box(camx-30,camy+24,60d0,3d0,rgba(110,255,140,255))
-  if(code==8)then
-   call box(camx+40,camy,10d0,30d0,rgba(255,80,60,255));call txt('gain too high: counts clip at the ADC ceiling',x+8,y+6,c_orange)
-  end if
-  if(code==9)then
-   call txt('camera read noise x'//trim(num(p(1),0)),x+8,y+6,c_orange)
-   do k=1,30
-    call disc(camx-34+mod(k*37+t*500,68d0),camy+2+mod(k*13+t*331,26d0),1d0,c_ink,.9d0)
-   end do
-  end if
-  if(code==10)then
-   call disc(px0+3.5d0*wx+wx/2,yp-5,wx*1.1d0,rgba(120,90,60,255),.55d0);call txt('spill on the optical path: patch wells dim and noisy',x+8,y+6,c_orange)
-  end if
-  if(code==5.or.code==17)call txt('filter shifted: FAM leaks into YY',x+8,y+6,c_orange)
-  if(code==4)call txt('beam off-axis: far wells dim',x+8,y+6,c_orange)
-  if(code==30)call txt('plastic fluoresces',x+8,y+6,c_orange)
-  if(code==41)call txt('bubbles scatter light',x+8,y+6,c_orange)
-  if(code==45)call txt('droplet on the wall joins late',x+8,y+6,c_orange)
-  if(code==46)call txt('liquid on walls: not spun',x+8,y+6,c_orange)
-  if(code==39)call txt('edge wells evaporate',x+8,y+6,c_orange)
-  call txt(phase_text(ph),x+8,y+h-20,c_cyan)
+  call txt('tubes',x0-50,ytube-4-s%lift,c_ink)
+  ! ---- lid stack: heated lid, excitation filter, LED board (lifts when opened)
+  call box(x0-6,ylid,pw+12,12d0,tcol(s%tlid))
+  call txt('lid',x0-50,ylid-3,c_ink)
+  c=rgba(90,140,255,255);if(s%dirt>0)c=mix(c,rgba(120,90,60,255),.5d0)
+  call box(x0-6,yfil,pw+12,4d0,c);call txt('Ex filter',x0-76,yfil-7,c_ink)
+  if(s%dirt>0)call disc(x0+4*wx,yfil+2,wx*.9d0,rgba(120,90,60,255),.6d0)
+  call box(x0-6,yled-4,pw+12,6d0,rgba(40,120,70,255));call txt('LEDs',x0-50,yled-8,c_ink)
+  do i=0,7
+   cx=x0+i*wx+wx/2+s%misalign*wx*.35d0
+   ledc=mix(rgba(50,60,90,255),rgba(140,200,255,255),s%led*s%reading)
+   call ball(cx,yled+5,4d0,ledc)
+   if(s%reading>0.and.s%lidopen<=0)then
+    call glow(cx,yled+5,10d0,rgba(140,200,255,255),.6d0*s%led)
+    call dash(cx,yled+10,cx,ycap-s%lift,rgba(120,180,255,255),1.3d0*s%led,t*70)
+   end if
+  end do
+  call box(x0+pw/2-64,ylid+1,128d0,10d0,tcol(s%tlid))
+  call txt('heated lid '//trim(num(s%tlid,0))//' C',x0+pw/2-56,ylid-1,c_bg)
+  ! ---- section A-A: tube pair with side photodiode boards
+  sx0=x+lw+14;sw=w-lw-22
+  call box(sx0+18,yblk,sw-36,46d0,tcol(s%tz(1)))
+  call box(sx0+18,ylid,sw-36,12d0,tcol(s%tlid))
+  call box(sx0+18,yfil,sw-36,4d0,rgba(90,140,255,255))
+  call box(sx0+18,yled-4,sw-36,6d0,rgba(40,120,70,255))
+  do k=0,1
+   cx=sx0+sw*(.36d0+.28d0*k)
+   call box(cx-10,ycap-s%lift,20d0,6d0,rgba(215,215,228,255))
+   call seg(cx-9,ytube-s%lift,cx-4,yblk+40-s%lift,rgba(200,200,215,255),1.5d0)
+   call seg(cx+9,ytube-s%lift,cx+4,yblk+40-s%lift,rgba(200,200,215,255),1.5d0)
+   v=s%reading_level*s%led*s%seal*(.35d0+.65d0*s%reading)
+   call box(cx-5,yblk+16-s%lift,10d0,22d0,mix(rgba(40,90,60,255),rgba(110,255,140,255),v))
+   call ball(cx+s%misalign*8,yled+5,4d0,mix(rgba(50,60,90,255),rgba(140,200,255,255),s%led*s%reading))
+   if(s%reading>0.and.s%lidopen<=0)then
+    call dash(cx+s%misalign*8,yled+10,cx+s%misalign*8,yblk+20,rgba(120,180,255,255),1.3d0,t*70)
+    dx=-1;if(k==1)dx=1
+    call dash(cx,yblk+26,cx+dx*(sw*.36d0-8),yblk+26,rgba(110,255,140,255),1.3d0*v+.2d0,t*70)
+    if(s%xtalk>0)call dash(cx,yblk+32,cx+dx*(sw*.36d0-8),yblk+32,rgba(255,220,70,255),1.3d0*s%xtalk*2,t*70)
+   end if
+  end do
+  do k=0,1
+   bx=sx0+4+k*(sw-12)
+   call box(bx,yblk-8,6d0,58d0,rgba(40,120,70,255))
+   c=rgba(110,255,140,255);if(s%xtalk>0)c=mix(c,rgba(255,220,70,255),.5d0)
+   call box(bx+6-k*9,yblk+8,3d0,30d0,c)
+  end do
+  call txt('section A-A',sx0+22,yblk+28,c_bg)
+  call txt('photodiode',sx0,yblk+56,c_ink);call txt('boards + Em filters',sx0,yblk+72,c_ink)
+  ! ---- detector strip: LED on / LED off samples of the tube being read
+  detx=sx0;dety=y+h-92;detw=sw;deth=58
+  call box(detx,dety,detw,deth,rgba(14,10,16,255));call frame_rect(detx,dety,detw,deth,c_purple,1d0)
+  call txt('photodiode ADC  tube '//trim(num(real(s%mux,c_double),0)),detx+4,dety+2,c_cyan)
+  ly=dety+deth-8
+  do i=0,63
+   ux=detx+4+i*(detw-8)/64d0
+   vv=0
+   if(s%reading>0.and.mod(i/8,2)==0)vv=s%reading_level*s%led*s%seal*.8d0+.08d0
+   if(s%noise>0)vv=vv+.05d0*s%noise*sin(i*12.9898d0+t*41)
+   lo=min(.92d0,max(0d0,vv));if(s%sat>0.and.vv>0)lo=.92d0
+   call seg(ux,ly-lo*(deth-22),ux+(detw-8)/64d0,ly-lo*(deth-22),rgba(110,255,140,255),1.5d0)
+  end do
+  if(s%sat>0)call seg(detx+4,ly-.92d0*(deth-22),detx+detw-4,ly-.92d0*(deth-22),rgba(255,80,60,255),1d0)
+  call txt('LED on / off',detx+4,dety+deth+2,c_ink)
  end subroutine
 ! @nativefn NR2-ANI-F0041
  function phase_text(ph) result(s)
@@ -455,7 +551,7 @@ contains
   else if(ph<3.2d0)then
    s='Cooling to annealing 60 C'
   else if(ph<5.6d0)then
-   s='Annealing 60 C - camera read'
+   s='Annealing 60 C - LED read'
   else
    s='Next cycle'
   end if
@@ -797,57 +893,64 @@ contains
  end subroutine
 ! ------------------------------------------------------------------ structure (PDB 8UCU)
 ! @nativefn NR2-ANI-F0080
- subroutine draw_structure_scene(code,p,x,y,w,h,t,fault_on)
+ subroutine draw_structure_scene(code,p,x,y,w,h,t,fault_on,sidx)
   ! Rotating polymerase-DNA complex drawn back to front (64 depth bins). Polymerase as its
   ! C-alpha trace, nucleic acids and ligands as heavy atoms.
   integer,intent(in)::code
   real(c_double),intent(in)::p(6),x,y,w,h,t
   logical,intent(in)::fault_on
+  integer,intent(in)::sidx
   integer,parameter::nbin=64
   real(c_double)::a,tilt,ca,sa,ct,st,px,py,pz,sc,cx,cy,r,rx,ry,rz,zmin,zmax,jit,ix,iy,iz,ang
   real(c_double),allocatable::sx(:),sy(:),sz(:)
-  real(c_double),save::g(3)=0,rmax=-1
+  real(c_double),save::gs(3,8)=0,rs(8)=-1
+  real(c_double)::g(3),rmax
+  integer::i0,i1,ns,si
   integer,allocatable::order(:),cnt(:)
-  integer::i,k,b,c,nin
+  integer::i,k,b,c,nin,j
   integer(c_int32_t)::col
   logical::on
   on=fault_on;c=code;if(.not.on)c=0
+  si=max(1,min(st_count,sidx));i0=st_first(si);i1=st_last(si);ns=i1-i0+1
+  if(si>1)c=0
   cb=[x,y,x+w,y+h];call box(x,y,w,h,rgba(18,12,18,255))
-  allocate(sx(st_n),sy(st_n),sz(st_n),order(st_n),cnt(0:nbin))
-  if(rmax<0)then
+  allocate(sx(ns),sy(ns),sz(ns),order(ns),cnt(0:nbin))
+  if(rs(si)<0)then
    do k=1,3
-    g(k)=sum(st_xyz(k,:))/(10d0*st_n)
+    gs(k,si)=sum(st_xyz(k,i0:i1))/(10d0*ns)
    end do
-   rmax=0
-   do i=1,st_n
-    rmax=max(rmax,sqrt(sum((st_xyz(:,i)/10d0-g)**2)))
+   rs(si)=0
+   do i=i0,i1
+    rs(si)=max(rs(si),sqrt(sum((st_xyz(:,i)/10d0-gs(:,si))**2)))
    end do
   end if
+  g=gs(:,si);rmax=rs(si)
   a=t*.35d0;tilt=.30d0;ca=cos(a);sa=sin(a);ct=cos(tilt);st=sin(tilt)
   sc=.92d0*(min(w,h-60)/2)/rmax;cx=x+w/2;cy=y+h/2+8
   jit=0;if(c==23)jit=4*(1-p(1))
-  do i=1,st_n
+  do j=1,ns
+   i=i0+j-1
    px=st_xyz(1,i)/10d0-g(1);py=st_xyz(2,i)/10d0-g(2);pz=st_xyz(3,i)/10d0-g(3)
-   if(jit>0.and.st_kind(i)<=2)then
+   if(jit>0.and.(st_kind(i)<=2.or.st_kind(i)==8))then
     px=px+jit*sin(i*1.7d0+t*3);py=py+jit*sin(i*2.3d0+t*2.6d0);pz=pz+jit*sin(i*3.1d0+t*3.3d0)
    end if
    rx=ca*px+sa*pz;rz=-sa*px+ca*pz;ry=ct*py-st*rz;rz=st*py+ct*rz
-   sx(i)=cx+sc*rx;sy(i)=cy-sc*ry;sz(i)=rz
+   sx(j)=cx+sc*rx;sy(j)=cy-sc*ry;sz(j)=rz
   end do
   zmin=minval(sz);zmax=maxval(sz)+1d-6
   ! counting sort by depth, far (small z) first
   cnt=0
-  do i=1,st_n
+  do i=1,ns
    b=min(nbin-1,int((sz(i)-zmin)/(zmax-zmin)*nbin));cnt(b+1)=cnt(b+1)+1
   end do
   do b=1,nbin
    cnt(b)=cnt(b)+cnt(b-1)
   end do
-  do i=1,st_n
+  do i=1,ns
    b=min(nbin-1,int((sz(i)-zmin)/(zmax-zmin)*nbin));cnt(b)=cnt(b)+1;order(cnt(b))=i
   end do
-  do k=1,st_n
-   i=order(k)
+  do k=1,ns
+   j=order(k);i=i0+j-1
    select case(st_kind(i))
    case(1)
     r=1.9d0;col=mix(rgba(150,110,200,255),rgba(90,150,255,255),real(i,c_double)/870)
@@ -864,11 +967,15 @@ contains
     if(c==26.and.mod(t,6d0)>2)cycle
    case(6)
     r=1.15d0;col=rgba(255,220,70,255)
+   case(8)
+    r=1.9d0;col=mix(rgba(70,170,150,255),rgba(140,210,120,255),real(j,c_double)/ns)
+   case(9)
+    r=1.9d0;col=rgba(235,235,240,255)
    case default
     r=1.5d0;col=rgba(255,80,255,255)
    end select
-   col=mix(rgba(18,12,18,255),col,.55d0+.45d0*(sz(i)-zmin)/(zmax-zmin))
-   call ball(sx(i),sy(i),max(1d0,r*sc),col)
+   col=mix(rgba(18,12,18,255),col,.55d0+.45d0*(sz(j)-zmin)/(zmax-zmin))
+   call ball(sx(j),sy(j),max(1d0,r*sc),col)
   end do
   if(c==27)then
    ! inhibitor molecules (humic acid / ethanol carry-over) crowding the DNA-binding surface
@@ -880,12 +987,34 @@ contains
     call ball(cx+sc*rx,cy-sc*ry,3.2d0*sc,rgba(140,100,60,255))
    end do
   end if
-  call txt('PDB 8UCU: DNA polymerase alpha (C-alpha trace), template (cyan), primer (pink),',x+8,y+6,c_ink)
-  call txt('incoming dGTP (green), terminal ddC (yellow), Mg2+ (magenta), DNA-contact residues (orange)',x+8,y+24,c_ink)
+  select case(si)
+  case(1)
+   call txt('PDB 8UCU: DNA polymerase alpha (C-alpha trace), template (cyan), primer (pink),',x+8,y+6,c_ink)
+   call txt('incoming dGTP (green), terminal ddC (yellow), Mg2+ (magenta), DNA-contact residues (orange)',x+8,y+24,c_ink)
+  case(2)
+   call txt('PDB 1RFF: tyrosyl-DNA phosphodiesterase 1 (DNA repair) dimer, DNA (cyan/pink),',x+8,y+6,c_ink)
+   call txt('topoisomerase I peptides (white), vanadate (yellow), DNA-contact residues (orange)',x+8,y+24,c_ink)
+  case(3)
+   call txt('PDB 1A3Q: NF-kappaB p52 homodimer (transcription factor) gripping its DNA site,',x+8,y+6,c_ink)
+   call txt('monomers purple / green, DNA strands cyan / pink, DNA-contact residues (orange)',x+8,y+24,c_ink)
+  case default
+   call txt('PDB 1RM1: TATA-binding protein (purple) and TFIIA (green) on TATA-box DNA,',x+8,y+6,c_ink)
+   call txt('DNA strands cyan / pink (bent by TBP), DNA-contact residues (orange)',x+8,y+24,c_ink)
+  end select
+  if(si>1)call txt('General protein-DNA teaching scene: not a PCR enzyme',x+8,y+h-42,c_orange)
   if(c==23)call txt('heat-inactivated enzyme: the fold is lost, no productive binding',x+8,y+h-42,c_orange)
   if(c==27)call txt('inhibitors bind the enzyme and the DNA: fewer productive complexes',x+8,y+h-42,c_orange)
   if(c==26)call txt('no dNTP at the active site for most of the time: extension stalls',x+8,y+h-42,c_orange)
-  call txt('Real structure, rotating. Mullins et al. 2024 (cryo-EM)',x+8,y+h-20,c_cyan)
+  select case(si)
+  case(1)
+   call txt('Real structure, rotating. Mullins et al. 2024 (cryo-EM)',x+8,y+h-20,c_cyan)
+  case(2)
+   call txt('Real structure, rotating. Davies et al. 2004 (X-ray)',x+8,y+h-20,c_cyan)
+  case(3)
+   call txt('Real structure, rotating. Cramer et al. 1997 (X-ray)',x+8,y+h-20,c_cyan)
+  case default
+   call txt('Real structure, rotating. Jin, Gewirth and Geiger (X-ray)',x+8,y+h-20,c_cyan)
+  end select
   cb=[x,y,x+w,y+h];call frame_rect(x+.5d0,y+.5d0,w-1,h-1,c_purple,1d0)
   cb=[0d0,0d0,1d4,1d4]
  end subroutine

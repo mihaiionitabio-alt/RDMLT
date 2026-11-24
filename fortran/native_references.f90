@@ -2,8 +2,8 @@
 ! References page data. Generated from the project reference list (UTF-8 text as achar byte sequences).
 module native_references
  implicit none
- integer, parameter :: nref=122, ref_len=946
- integer, parameter :: ref_section(nref)=[1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,3,3,3,3,3,3]
+ integer, parameter :: nref=128, ref_len=946
+ integer, parameter :: ref_section(nref)=[1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,3,3,3,3,3,3,3]
  character(len=48), parameter :: section_title(3)=[character(len=48):: "Literature, standards and repositories", &
   "Software and specifications used in this edition","Edition notes and controls"]
  character(len=ref_len), parameter :: ref_text(nref)=[character(len=ref_len):: &
@@ -422,20 +422,44 @@ module native_references
    "tability of DNA duplexes in solutions containing magnesium and monovalent cations. Bioch" // &
    "emistry, 47(19), 5336-5353. Available at: https://doi.org/10.1021/bi702363u (Accessed: 2" // &
    "4 November 2026). Used for: the salt and magnesium correction in r2_tm_nn.", &
+  "Chai Biotechnologies Inc. (2018). Open qPCR User Manual, Revision B. Used for: the gener" // &
+   "ic instrument drawings (per-tube LED and excitation filter in the heated lid, side emiss" // &
+   "ion filters and photodiode boards, two block thermistors, dual Peltier modules on a copp" // &
+   "er spreader, heat sink and fan), redrawn as a generic 16-tube cycler; no figure or value" // &
+   " is reproduced.", &
+  "Chai Biotechnologies Inc. chaipcr open-source instrument software and Open qPCR hardware" // &
+   " files (GitHub, chaibio). Used for: the MISSY R2 instrument model (lid and block sensor " // &
+   "curves, LED on / off detector sampling) inherited from MISSY R2 and shown in the detecto" // &
+   "r-timing animation.", &
   "Bio-Rad Laboratories (n.d.). iCycler iQ Real-Time PCR Detection System Instruction Manua" // &
-   "l, catalog number 170-8740 (document 4006200 Rev E). Used for: the layout of the instrum" // &
-   "ent cross-section in the scenario animations (light source, excitation filters, mirrors," // &
-   " sample plate, emission filters, intensifier and CCD detector), adapted to the simulated" // &
-   " MISSY R2 instrument.", &
+   "l, catalog number 170-8740 (document 4006200 Rev E). Used for: general background on opt" // &
+   "ical detection in plate cyclers; the earlier drawing adapted from it was replaced by the" // &
+   " generic cycler.", &
+  "Davies, D.R., Interthal, H., Champoux, J.J. and Hol, W.G.J. (2004). Explorations of pept" // &
+   "ide and oligonucleotide binding sites of tyrosyl-DNA phosphodiesterase using vanadate co" // &
+   "mplexes. Journal of Medicinal Chemistry, 47, 829. Used for: structure view 2 (PDB entry " // &
+   "1RFF, wwPDB data CC0 1.0), a DNA repair enzyme shown as a general protein-DNA teaching s" // &
+   "cene.", &
+  "Cramer, P., Larson, C.J., Verdine, G.L. and Muller, C.W. (1997). Structure of the human " // &
+   "NF-kappaB p52 homodimer-DNA complex at 2.1 A resolution. EMBO Journal, 16, 7078. Used fo" // &
+   "r: structure view 3 (PDB entry 1A3Q, wwPDB data CC0 1.0), a transcription factor shown a" // &
+   "s a general protein-DNA teaching scene.", &
+  "Jin, X., Gewirth, D.T. and Geiger, J.H. (2003). High resolution structure of a yeast TFI" // &
+   "IA/TBP/TATA-box DNA complex. PDB entry 1RM1 (wwPDB data CC0 1.0). Used for: structure vi" // &
+   "ew 4, TATA-binding protein and TFIIA on bent DNA, shown as a general protein-DNA teachin" // &
+   "g scene.", &
   "Retained: native generic DNA probe assay, 45 cycles, 1-3 extractions and replicates; nat" // &
    "ive kinetics, thermal plant and PID controller, dual-sensor monitor, raw integer fluores" // &
    "cence; batches of 1-20 runs with seeded variation and teaching control review.", &
   "qPCR scenarios: tick any number of cards (and the normal run) and set how many runs each" // &
    "; Run selection files them one after another, up to the 32-run history. Opening a card s" // &
-   "hows an animation of the mechanism (instrument cross-section, molecules in the well, wel" // &
-   "ls and plate map, data path, or the 8UCU structure) and the fault curves against the nor" // &
-   "mal reference, both simulated with the full model, same seed and profile. The animations" // &
-   " illustrate the mechanism; they are not measurements.", &
+   "hows an animation of the mechanism (generic 16-tube cycler with section and detector tim" // &
+   "ing, molecules in the well, wells and plate map, data path, or one of four protein-DNA s" // &
+   "tructures) and the fault curves against the normal reference, both simulated with the fu" // &
+   "ll model, same seed and profile. The animations illustrate the mechanism; they are not m" // &
+   "easurements.", &
+  "Run page: the Instrument button shows a live view of the run in progress (thermal plant," // &
+   " controller outputs, LED reads and photodiode readings), drawn in Fortran.", &
   "Exports: full RDMLt packages with the MISSY R2 layout (RDML 1.3 core, RDMLt companion wi" // &
    "th SHA-256, telemetry, acquisitions, simulator record, chemistry snapshots, evaluation, " // &
    "assay detail and temperature statistics). Packages open in MISSY. Imports: this edition'" // &

@@ -1,6 +1,6 @@
 {
   "schema": "missy-r2-fortran-build/1",
-  "sourceSha256": "e02a49520f5d5b7101c325544227441cc9ade7ca63e96d31ab558c41ecc706bf",
+  "sourceSha256": "b1cc3f003ceb09aa2b15fac2a95e2867f307b96dca575185bf9e7f46defa6cb2",
   "compiler": "LFortran version: 0.69.0\nStatus: alpha (expected to fail on third-party codes)\nPlatform: Linux\nLLVM: 21.1.7\nDefault target: x86_64-conda-linux-gnu\nLSP Version: 3.17.0\nJSON_RPC Version: 2.0",
   "linker": "emcc (Emscripten gcc/clang-like replacement + linker emulating GNU ld) 4.0.9-git",
   "exports": [
@@ -24,5 +24,5 @@
   ],
   "embeddedWasm": true,
   "optimization": "LFortran --fast --no-fast-math; Emscripten -O0 link",
-  "generatedSha256": "b9ab3fa0c58937605b07eafe0c41f396b63599e883d349aa1734e32bfc70622b"
+  "generatedSha256": "9cc5a41dc7449b4f53dee791b3ca5f811365c8c6bc3ddecc619d8516afe63795"
 }

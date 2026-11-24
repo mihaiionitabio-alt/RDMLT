@@ -11,7 +11,7 @@ module native_ui
  use native_codec, only: sha256_hex, deflate_fixed, zlen
  use native_references
  use native_anim
- use native_structure, only: st_n,st_kind
+ use native_structure, only: st_n,st_kind,st_count
  use native_scenarios
  use r2_math, only: rng_uniform, rng_gauss
  use r2_thermal
@@ -34,8 +34,8 @@ module native_ui
   'Hydrolysis probe and detector optics','Cq threshold analysis','Scenario identifiers, titles and kinds (51)', &
   'Scenario parameter labels and bounds','Scenario default parameter bank (51 x 6)','Native profile defaults', &
   'Run history store (32 runs)','CRC-32 lookup table','SHA-256 message digest','DEFLATE compressor (fixed Huffman, LZ77)', &
-  'ZIP and RDMLt export buffers','References and edition notes (122 entries)','Home and navigation', &
-  'Virtual PCR acquisition view and charts','Results and curve selection','Scenario catalogue, animations, 8UCU structure', &
+  'ZIP and RDMLt export buffers','References and edition notes (128 entries)','Home and navigation', &
+  'Virtual PCR acquisition view and charts','Results and curve selection','Scenario catalogue, animations, 4 structures', &
   'References page']
  integer,save::boot_next=1,boot_pending=0,boot_failed=0,ref_page=0
  real(c_double),save::boot_anim=0,boot_ms=0,boot_el(0:nboot)=0,host_ms=-1,host_mb=-1,boot_done_ms=0
@@ -43,6 +43,7 @@ module native_ui
  real(c_double),save::anim_t=0,anim_acc=0
  integer,save::pv_channel=1
  logical,save::show_fault=.true.,show_structure=.false.
+ integer,save::struct_idx=1
  integer(c_int32_t),parameter::bg=int(z'FF10090D',c_int32_t),orange=int(z'FF649BFF',c_int32_t)
  integer(c_int32_t),parameter::purple=int(z'FFC99ACB',c_int32_t),ink=int(z'FFF3E0EA',c_int32_t)
  integer(c_int32_t),parameter::panel=int(z'FF281723',c_int32_t),cyan=int(z'FFDCDC60',c_int32_t)
@@ -327,7 +328,7 @@ contains
 ! @nativefn NR2-M03-F0008
  subroutine draw_profile()
   character(len=36),parameter::names(8)=[character(len=36)::'Number of runs','DNA extractions','PCR replicates per extraction', &
-   'Starting DNA copies','Net threshold counts','Seed','Sensor fault: 0 normal / 1 bias','Simulation acceleration']
+   'Starting DNA copies','Net threshold counts','Seed','Sensor fault: 0 normal / 1 bias','Acceleration (168 = 30 s run)']
   integer::i,y,vals(8)
   vals=[p_runs,p_ext,p_rep,p_copies,p_threshold,p_seed,p_fault,p_speed]
   do i=1,8
@@ -447,6 +448,134 @@ contains
    s='Interpretation'
   end select
  end function
+! @nativefn NR2-M03-F0110
+ subroutine draw_live()
+  ! Live instrument view of the acquisition: the generic cycler driven by the thermal plant,
+  ! controller outputs and detector readings of the run in progress (or the selected record).
+  type(cycler_t)::s
+  type(curve_t)::r
+  real(c_double)::lo,hi,v,bw,bx,by,bh,pk
+  integer::w,n,i,x0
+  logical::live
+  live=ui_busy()
+  if(live)then
+   r=curves_of(current)
+  else if(selected>0)then
+   r=curves_of(history(selected))
+  else
+   r=curves_of(current)
+  end if
+  if(live)then
+   s%tz=plant(3:4);s%tsens=measured;s%tlid=plant(5);s%tsink=plant(6)
+   s%duty=max(-1d0,min(1d0,plant(8:9)));s%lidduty=plant(10)
+   s%fanstall=0;if(plant(13)>.5d0)s%fanstall=1
+   s%reading=0
+   if(current%ncy>0)then
+    if(current%elapsed-current%acq_t(current%ncy)<1.5d0)s%reading=1
+   end if
+  else
+   s%tz=25;s%tsens=25;s%tlid=25;s%tsink=25;s%reading=1
+  end if
+  s%mux=1+mod(int(anim_t*16),16)
+  n=r%ncy;lo=1d9;hi=-1d9
+  do w=1,min(16,r%nw)
+   if(r%present(w)==0.or.n<1)cycle
+   lo=min(lo,r%y(1,w));hi=max(hi,maxval(r%y(1:n,w)))
+  end do
+  if(hi<=lo)hi=lo+1
+  do w=1,min(16,r%nw)
+   if(r%present(w)==0.or.n<1)cycle
+   s%glow(w)=max(0d0,min(1d0,(r%y(n,w)-lo)/max(400d0,hi-lo)))
+  end do
+  s%reading_level=maxval(s%glow)
+  call draw_cycler(s,60d0,150d0,820d0,300d0,anim_t)
+  if(live)then
+   call label('Live: thermal plant, controller and detector of the run in progress',68,156,cyan,1)
+  else
+   call label('Idle instrument with the readings of the selected record',68,156,cyan,1)
+  end if
+  ! numbers
+  x0=905
+  call soft_panel(x0,150,width-x0-60,300,12,panel)
+  call label('Set point  '//trim(real_text(target,1))//' C',x0+16,166,ink,1)
+  call label('Zone 1     '//trim(real_text(s%tz(1),2))//' C',x0+16,192,orange,1)
+  call label('Zone 2     '//trim(real_text(s%tz(2),2))//' C',x0+16,218,orange,1)
+  call label('Thermistors '//trim(real_text(s%tsens(1),2))//' / '//trim(real_text(s%tsens(2),2)),x0+16,244,ink,1)
+  call label('Lid        '//trim(real_text(s%tlid,1))//' C',x0+16,270,ink,1)
+  call label('Heat sink  '//trim(real_text(s%tsink,1))//' C',x0+16,296,ink,1)
+  call label('Peltier    '//trim(real_text(100*s%duty(1),0))//'% / '//trim(real_text(100*s%duty(2),0))//'%',x0+16,322,ink,1)
+  call label('Cycle      '//trim(integer_text(n))//' / 45',x0+16,348,cyan,1)
+  if(live)then
+   if(s%reading>0)then
+    call label('Reading: LED on / off per tube',x0+16,374,cyan,1)
+   else if(target>=90)then
+    call label('Denaturation',x0+16,374,orange,1)
+   else
+    call label('Annealing / extension',x0+16,374,purple,1)
+   end if
+  end if
+  call label('Real time  '//trim(clock_text(wall_run,.false.))//' of ~'//trim(clock_text(last_full_elapsed/p_speed,.false.)),x0+16,400,ink,1)
+  call label('Simulated  '//trim(clock_text(current%elapsed,.true.))//' of ~'//trim(clock_text(last_full_elapsed,.true.)),x0+16,426,orange,1)
+  ! photodiode readings of the last cycle, one bar per tube
+  bx=60;by=470;bw=(width-120)/16d0;bh=height-170-by-30
+  call soft_panel(60,nint(by)-6,width-120,nint(bh)+40,12,panel)
+  call label('Photodiode readings, cycle '//trim(integer_text(n))//' (net counts above cycle 1)',72,nint(by),ink,1)
+  pk=0
+  do w=1,min(16,r%nw)
+   if(r%present(w)==0.or.n<1)cycle
+   pk=max(pk,r%y(n,w)-r%y(1,w))
+  end do
+  pk=max(pk,400d0)
+  do w=1,min(16,r%nw)
+   if(r%present(w)==0.or.n<1)cycle
+   v=max(0d0,(r%y(n,w)-r%y(1,w))/pk)
+   i=nint(v*(bh-30))
+   call soft_panel(nint(bx+(w-1)*bw+6),nint(by+bh+4)-i,nint(bw-12),max(4,i),4,well_colour(r,w))
+   call label(trim(integer_text(w)),nint(bx+(w-1)*bw+bw/2-6),nint(by+bh+10),ink,1)
+  end do
+ end subroutine
+! @nativefn NR2-M03-F0111
+ integer(c_int32_t) function well_colour(r,w) result(c)
+  type(curve_t),intent(in)::r
+  integer,intent(in)::w
+  integer::ss
+  ss=r%ne*r%nr;c=orange
+  if(w==ss+1)c=rgba(155,145,255,255)
+  if(w==ss+2)c=rgba(75,220,135,255)
+  if(w==ss+3)c=cyan
+  if(w>=ss+4)c=rgba(255,210,70,255)
+ end function
+! @nativefn NR2-M03-F0112
+ function clock_text(sec,hours) result(s)
+  real(c_double),intent(in)::sec
+  logical,intent(in)::hours
+  character(len=16)::s
+  integer::t,hh,mm,ss
+  character(len=2)::a,b
+  t=max(0,nint(sec));hh=t/3600;mm=mod(t/60,60);ss=mod(t,60)
+  write(a,'(i2.2)')mm;write(b,'(i2.2)')ss
+  if(hours)then
+   s=trim(integer_text(hh))//':'//a//':'//b
+  else
+   s=trim(integer_text(t/60))//':'//b
+  end if
+ end function
+! @nativefn NR2-M03-F0113
+ function time_line() result(s)
+  ! Real (wall-clock) time of the run next to the instrument time it simulates.
+  character(len=120)::s
+  real(c_double)::sim
+  if(ui_busy())then
+   s='Real '//trim(clock_text(wall_run,.false.))//' of ~'//trim(clock_text(last_full_elapsed/p_speed,.false.))// &
+    ' | real cycler '//trim(clock_text(current%elapsed,.true.))//' of ~'//trim(clock_text(last_full_elapsed,.true.))
+  else if(selected>0)then
+   sim=history(selected)%elapsed
+   s='Recorded run: real cycler time '//trim(clock_text(sim,.true.))
+  else
+   s='A run takes ~'//trim(clock_text(last_full_elapsed/p_speed,.false.))//' here for ~'// &
+    trim(clock_text(last_full_elapsed,.true.))//' on a real cycler'
+  end if
+ end function
 ! @nativefn NR2-M03-F0109
  function scene_name(code) result(s)
   integer,intent(in)::code
@@ -507,7 +636,8 @@ contains
   if(p_scenario==21)call wrapped_px('Not reproducible: requires an intercalating-dye melt acquisition workflow.',60,y+70,560,orange)
   ! animation and curves
   if(show_structure.and.scene_family(p_scenario)==2)then
-   call draw_structure_scene(p_scenario,scenario_bank(:,p_scenario),real(px,c_double),125d0,real(pw,c_double),270d0,anim_t,show_fault)
+   call draw_structure_scene(p_scenario,scenario_bank(:,p_scenario),real(px,c_double),125d0,real(pw,c_double),270d0,anim_t,show_fault,struct_idx)
+   call button(61,0,'Next structure',px+pw-160,125+270-40,150,32,.true.)
   else
    call draw_fault_scene(p_scenario,scenario_bank(:,p_scenario),real(px,c_double),125d0,real(pw,c_double),270d0,anim_t,show_fault)
   end if
@@ -820,7 +950,7 @@ contains
   case(20)
    n=count(len_trim(ref_text)>0);if(n/=nref)boot_failed=k
   case(24)
-   if(st_n/=1390.or.count(st_kind==5)/=31.or.count(st_kind==7)/=1)boot_failed=k
+   if(st_count/=4.or.st_n/=4511.or.count(st_kind==5)/=31.or.count(st_kind==7)/=1)boot_failed=k
   case default
    continue
   end select
@@ -1175,7 +1305,9 @@ contains
   end if
   shown_cycle=current%ncy
   if(.not.ui_busy().and.selected>0)shown_cycle=history(selected)%ncy
-  if(page==1.and.(ui_busy().or.selected==0))then
+  if(page==1.and.graphmode==3)then
+   call allocate_frame(width,height,bg)
+  else if(page==1.and.(ui_busy().or.selected==0))then
    call draw_chart(current)
   else if(page==1.and.selected>0)then
    call draw_chart(history(selected))
@@ -1217,20 +1349,23 @@ contains
    end if
    if(.not.scenario_available(p_scenario))call label('Melt acquisition is unavailable. Select another scenario or Normal virtual PCR.',60,700,orange,1)
   else if(page==1)then
+   if(graphmode==3)call draw_live()
    call label('PCR acquisition '//trim(integer_text(shown_cycle))//' / 45 | '//trim(integer_text(nh))//' run(s) filed',60,120,ink,1)
-   if(graphmode/=1)then
+   call label(trim(time_line()),560,120,cyan,1)
+   if(graphmode==0.or.graphmode==2)then
     call label('Sample',80,142,orange,1);call label('Positive control',190,142,purple,1)
     call label('NTC',370,142,rgba(75,220,135,255),1);call label('Blank',450,142,cyan,1)
     call label('LOD controls',540,142,rgba(255,210,70,255),1)
    end if
-   if(graphmode/=1)call label(trim(integer_text(shown_cycle))//' cycles reached; missing readings omitted; integer-cycle markers only', &
+   if(graphmode==0.or.graphmode==2)call label(trim(integer_text(shown_cycle))//' cycles reached; missing readings omitted; integer-cycle markers only', &
     80,height-158,ink,1)
    if(graphmode==1)call label('Instrument minutes / block C | primary, secondary, setpoint',80,height-158,ink,1)
    call button(10,0,'Temperature / Fluorescence',60,height-132,245,44,.true.)
-   call button(18,0,'Reset chart',325,height-132,145,44,.true.)
+   call button(62,0,'Instrument',width-130,height-132,100,44,.true.)
+   call button(18,0,'Reset chart',325,height-132,145,44,graphmode/=3)
    call button(3,0,'Results',490,height-132,140,44,nh>0)
    call button(7,0,'Stop and file current run',650,height-132,245,44,ui_busy())
-   call button(28,0,'FAM / YY channel',915,height-132,210,44,graphmode/=1)
+   call button(28,0,'FAM / YY channel',915,height-132,210,44,graphmode==0.or.graphmode==2)
    if(graphmode==2)call label('YY channel',740,142,cyan,1)
    if(graphmode==0)call label('FAM channel',740,142,cyan,1)
   else if(page==2)then
@@ -1277,7 +1412,11 @@ contains
   case(7)
    p_fault=1-p_fault
   case(8)
-   p_speed=max(100,min(5000,p_speed+d*500))
+   if(p_speed+d*24<=500)then
+    p_speed=max(24,p_speed+d*24)
+   else
+    p_speed=max(24,min(5000,p_speed+d*500))
+   end if
   end select
   message='Native profile updated. Save the profile to reuse these settings.'
  end subroutine
@@ -1375,6 +1514,14 @@ contains
    show_fault=.not.show_fault
   case(60)
    show_structure=.not.show_structure
+  case(62)
+   if(graphmode==3)then
+    graphmode=0
+   else
+    graphmode=3
+   end if
+  case(61)
+   struct_idx=1+mod(struct_idx,st_count)
   case(22)
    catalog_page=max(0,catalog_page-1)
   case(23)
@@ -1540,7 +1687,7 @@ contains
    end if
   end if
   anim_t=anim_t+max(0d0,min(200d0,ms))/1000
-  if(page==0.or.page==7)then
+  if(page==0.or.page==7.or.(page==1.and.graphmode==3))then
    anim_acc=anim_acc+max(0d0,ms)
    if(anim_acc>=33)then
     anim_acc=0;dirty=.true.
