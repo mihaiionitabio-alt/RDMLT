@@ -406,21 +406,23 @@ contains
    call cad_credit(x,y,w-th_side,h)
    return
   end if
-  woff=0;wsc=.62d0
+  ! to scale (1.94 units per mm, 9 mm well pitch = 17.5 units): heat sink 100 mm long, 70 mm
+  ! wide, 6 mm base + 74 mm fins under the copper spreader; 60 mm fan on its end face
+  wsc=.33d0;woff=wsc*[0d0,58d0,0d0]
   alu=rgba(170,172,185,255);cu=rgba(205,120,70,255);cer=rgba(235,232,225,255);pcb=rgba(40,120,70,255)
   dark=rgba(95,86,102,255);tube=rgba(225,228,235,255)
   ! housing and heat sink
-  call cuboid([0d0,-46d0,0d0],[240d0,14d0,150d0],dark)
-  call cuboid([0d0,-34d0,0d0],[170d0,4d0,96d0],alu)
-  do i=0,15
-   call cuboid([-78d0+i*10.4d0,-22d0,0d0],[3d0,20d0,96d0],mix(alu,rgba(150,150,165,255),.5d0))
+  call cuboid([0d0,-176d0,0d0],[260d0,10d0,170d0],dark)
+  call cuboid([0d0,-18d0,0d0],[194d0,12d0,136d0],alu)
+  do i=0,16
+   call cuboid([0d0,-96d0,-64d0+i*8d0],[194d0,144d0,2.6d0],mix(alu,rgba(150,150,165,255),.5d0))
   end do
-  ! fan on the right end, rotating blades
+  ! 60 mm fan on the end face, rotating blades, blowing along the fins
   fan=t*9
-  call frustum([102d0,-22d0,0d0],[108d0,-22d0,0d0],16d0,16d0,24,dark,.true.)
+  call frustum([98d0,-96d0,0d0],[122d0,-96d0,0d0],56d0,56d0,32,dark,.true.)
   do k=0,4
    q=qaxis([1d0,0d0,0d0],fan+k*2*pi/5)
-   call cuboid([101d0,-22d0,0d0]+qrot(q,[0d0,7d0,0d0]),[2d0,12d0,5d0],rgba(150,150,165,255),q,[101d0,-22d0,0d0])
+   call cuboid([123d0,-96d0,0d0]+qrot(q,[0d0,26d0,0d0]),[2d0,44d0,16d0],rgba(150,150,165,255),q,[123d0,-96d0,0d0])
   end do
   ! copper spreader, Peltier modules (red = heating, blue = cooling)
   call cuboid([0d0,-10d0,0d0],[150d0,4d0,84d0],cu)
@@ -466,8 +468,8 @@ contains
   call tag([0d0,10d0,45d0],'photodiode board',-60d0,40d0)
   call tag([60d0,-5d0,31d0],'Peltier modules',60d0,22d0)
   call tag([75d0,-10d0,42d0],'copper spreader',60d0,44d0)
-  call tag([-80d0,-22d0,48d0],'heat sink',-50d0,30d0)
-  call tag([108d0,-22d0,0d0],'fan',40d0,30d0)
+  call tag([-80d0,-96d0,68d0],'heat sink 80 mm',-60d0,30d0)
+  call tag([122d0,-96d0,40d0],'fan 60 mm',40d0,30d0)
   call tag([0d0,12d0,-44d0],'optics modules: 520/24 + 585/24 filters',-120d0,-60d0)
   ! callout: what is inside one tube (real structure, PDB 8UCU)
   call screen_of([-61.25d0+17.5d0*2,26d0+drop,15d0],tx,tz)

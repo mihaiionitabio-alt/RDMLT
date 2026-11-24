@@ -27,6 +27,7 @@ module native_anim
   integer :: bubbles=0,droplets=0,nospin=0,mux=1,reading=0,fanstall=0
  end type
  real(c_double),save :: cb(4)=[0d0,0d0,1d4,1d4]
+ integer,save,public :: cyc_part=0
  real(c_double),parameter :: pi=3.141592653589793d0
  integer(c_int32_t),parameter :: c_bg=int(z'FF10090D',c_int32_t),c_orange=int(z'FF649BFF',c_int32_t)
  integer(c_int32_t),parameter :: c_purple=int(z'FFC99ACB',c_int32_t),c_ink=int(z'FFF3E0EA',c_int32_t)
@@ -272,29 +273,21 @@ contains
  end subroutine
 ! @nativefn NR2-ANI-F0032
  subroutine draw_instrument_stacked(code,p,x,y,w,h,t,fault_on)
-  ! Full-screen instrument drawing: the long (front) view on top and section A-A (lateral) with
-  ! the detector strip underneath, each drawn twice as large (render scale 4 for this drawing,
-  ! still into the 4K frame). The same drawing is used twice, clipped to each half.
+  ! Full-screen instrument drawing, to scale: one picture per screen (cyc_part 1 = long front
+  ! view, 2 = section A-A with the detector strip); the case page uses both views together.
   integer,intent(in)::code
   real(c_double),intent(in)::p(6),x,y,w,h,t
   logical,intent(in)::fault_on
-  integer::c,rs0
-  real(c_double)::hx,hy,hw,hh,ww,sx
+  integer::c
   c=code;if(.not.fault_on)c=0
   cb=[x,y,x+w,y+h];call box(x,y,w,h,rgba(22,14,20,255))
-  rs0=render_scale;render_scale=2*rs0
-  hx=x/2;hy=y/2;hw=w/2;hh=h/2
-  ww=(hw-40)/.64d0                              ! front view (64 % of the drawing) fills the width, fan inside
-  cb=[hx,hy,min(hx+hw,hx+.64d0*ww+8),hy+hh/2]    ! front view only
-  call scene_instrument(c,p,hx,hy,ww,hh/2,t)
-  sx=hx-.64d0*ww+max(0d0,(hw-.36d0*ww)/2)      ! lateral part, centred below
-  cb=[max(hx,sx+.64d0*ww+6),hy+hh/2,hx+hw,hy+hh] ! only the lateral part, not the front view again
-  call scene_instrument(c,p,sx,hy+hh/2,ww,hh/2,t)
-  render_scale=rs0
+  call scene_instrument(c,p,x,y,w,h,t)
   cb=[x,y,x+w,y+h]
-  call seg(x+10,y+h/2,x+w-10,y+h/2,rgba(120,90,130,255),1d0)
-  call txt('Front view (one 8-tube strip)',x+w-260,y+8,c_cyan)
-  call txt('Section A-A (lateral view) and detector timing',x+w-380,y+h/2+8,c_cyan)
+  if(cyc_part==2)then
+   call txt('Section A-A (lateral view) and detector timing - to scale',x+w-560,y+h-24,c_cyan)
+  else
+   call txt('Front view (one 8-tube strip) - to scale',x+w-400,y+h-24,c_cyan)
+  end if
   call frame_rect(x+.5d0,y+.5d0,w-1,h-1,c_purple,1d0)
   cb=[0d0,0d0,1d4,1d4]
  end subroutine
@@ -454,142 +447,216 @@ contains
  end function
 ! @nativefn NR2-ANI-F0043
  subroutine draw_cycler(s,x,y,w,h,t)
-  ! Generic layout (not any specific product): long view of one 8-tube strip with the lid
-  ! stack (LED board, excitation filter, heated lid), sample block with two thermistors, two
-  ! Peltier zones, copper spreader, finned heat sink and fan; section A-A through a tube pair
-  ! showing the optical path to the side photodiode boards; detector timing strip.
+  ! Generic layout (not any specific product), drawn to scale in millimetres estimated from the
+  ! Open qPCR thermal-block render (9 mm well pitch as reference): lid stack about 24 mm, tubes
+  ! standing 8 mm above a 13 mm block, Peltier 4 mm, copper spreader 3 mm, heat sink 80 mm high
+  ! (6 mm base + fins) and about 100 mm long with a 60 mm fan on its end face; section A-A is
+  ! 30 mm across the block (two tube rows at 9 mm) over a 70 mm wide heat sink. Thin layers keep
+  ! a minimum drawn thickness. cyc_part: 0 both views (cards, run page), 1 long (front) view
+  ! only, 2 section A-A and detector strip only (the two full-screen pictures). Labels sit in
+  ! their own column with leader lines so that they never overlap.
   type(cycler_t),intent(in)::s
   real(c_double),intent(in)::x,y,w,h,t
   real(c_double)::lw,x0,pw,wx,yled,yfil,ylid,ycap,ytube,yblk,ypel,ycu,yfin,yfe,cx,tw,ly,liq,lo,ang,sx0,sw,bx,by,v,dx
-  real(c_double)::lidlift,detx,dety,detw,deth,ux,vv
-  integer::i,k,n
+  real(c_double)::lidlift,detx,dety,detw,deth,ux,vv,km,hb,ybt,hp,hc,sxl,sxr,fr,fx,fy,ytop,cxs,bw,shw,lx,rowh,yl
+  real(c_double)::tgt(10)
+  character(len=24)::lab(10)
+  integer::i,k,n,nl
   integer(c_int32_t)::c,ledc,emc
-  lw=w*.64d0;x0=x+84;pw=lw-112;wx=pw/8
-  lidlift=s%lidopen*46
-  yled=y+30-lidlift;yfil=yled+10;ylid=yfil+8;ycap=y+68;ytube=ycap+7
-  yblk=y+86;ypel=yblk+48;ycu=ypel+17;yfin=ycu+5;yfe=yfin+34   ! Peltier bars tall enough for their labels
-  ! ---- heat sink, copper spreader, Peltier zones, block
-  call box(x0-8,ycu,pw+16,5d0,rgba(205,120,70,255))
-  call txt('Cu',x0-30,ycu-7,c_ink)
-  n=int((pw+16)/8)
+  logical::full
+  ytop=y+36                                     ! room for the fault caption above the drawing
+  lw=w*.64d0;if(cyc_part==1)lw=w
+  if(cyc_part==2)then
+   km=min((h-36-60)/140d0,(w*.58d0-170)/90d0)
+  else
+   km=min((h-36-60)/140d0,(lw-160)/132d0)
+  end if
+  km=max(.6d0,km)
+  lidlift=s%lidopen*20*km
+  yled=ytop+3*km-lidlift;yfil=yled+5*km;ylid=yfil+max(3d0,2*km);ycap=ytop+26*km;ytube=ycap+max(4d0,2*km)
+  yblk=ytop+34*km;hb=max(22d0,13*km);ybt=yblk+hb*.85d0
+  ypel=yblk+hb;hp=max(8d0,4*km);ycu=ypel+hp;hc=max(4d0,3*km);yfin=ycu+hc;yfe=yfin+80*km
+  rowh=max(26d0,12*km)
+  if(cyc_part/=2)then
+  ! =================================================================== long (front) view
+  x0=x+160+14*km;pw=72*km;wx=pw/8
+  sxl=x0-14*km;sxr=x0+86*km                      ! heat sink, 100 mm long
+  call box(sxl,yfin,sxr-sxl,6*km,rgba(150,150,165,255))
+  call box(x0-4*km,ycu,pw+8*km,hc,rgba(205,120,70,255))
+  n=int((sxr-sxl)/max(4d0,3*km))
   do i=0,n
    c=rgba(150,150,165,255)
    if(s%tsink>45)c=mix(c,rgba(230,70,50,255),min(1d0,(s%tsink-45)/20))
-   call box(x0-8+i*8d0,yfin,4d0,yfe-yfin,c)
+   call box(sxl+i*max(4d0,3*km),yfin+6*km,max(2d0,1.5d0*km),yfe-yfin-6*km,c)
   end do
-  call txt('heat sink',x0-76,yfin+8,c_ink)
+  ! fan (60 mm) on the end face of the heat sink, blowing along the fins
+  fr=30*km;fx=sxr+12*km;fy=yfin+40*km
+  call box(sxr,fy-fr,24*km,2*fr,rgba(55,48,58,255));call frame_rect(sxr,fy-fr,24*km,2*fr,c_purple,1d0)
   ang=t*14;if(s%fanstall>0)ang=0
-  call disc(x+lw-14,yfin+17,15d0,rgba(55,48,58,255),1d0)
   do k=0,2
-   call seg(x+lw-14,yfin+17,x+lw-14+13*cos(ang+k*2*pi/3),yfin+17+13*sin(ang+k*2*pi/3),c_ink,3d0)
+   call seg(fx,fy,fx+10*km*cos(ang+k*2*pi/3),fy+fr*.9d0*sin(ang+k*2*pi/3),c_ink,2d0)
   end do
   if(s%fanstall==0)then
-   do k=0,2
-    call dash(x+lw-34,yfin+6+k*11d0,x0,yfin+6+k*11d0,rgba(120,170,230,255),1d0,t*60)
+   do k=0,4
+    call dash(sxr-4,yfin+(14+13*k)*km,sxl+4,yfin+(14+13*k)*km,rgba(120,170,230,255),1d0,t*60)
    end do
   end if
-  call txt('fan',x+lw-24,yfe+2,c_ink)
+  if(sxr+24*km+100<x+lw)then
+   call txt('fan 60 mm',sxr+24*km+8,fy-9,c_ink)
+   call seg(sxr+24*km+8,yfe-8,sxr+24*km+8+20*km,yfe-8,c_ink,2d0)
+   call txt('20 mm',sxr+24*km+8,yfe-34,c_ink)
+  end if
+  ! plates on the heat sink face: heat sink, Peltier zone temperatures (when there is room)
+  yl=yfin+8*km
+  call box(sxl+4,yl,150d0,22d0,rgba(22,14,20,235));call txt('heat sink 80 mm',sxl+8,yl+2,c_ink)
   do k=1,2
    v=s%duty(k)
    c=mix(rgba(60,60,72,255),rgba(235,90,60,255),max(0d0,v))
    if(v<0)c=mix(rgba(60,60,72,255),rgba(80,150,255,255),-v)
-   call box(x0+(k-1)*pw/2+2,ypel,pw/2-4,15d0,c)
-   call txt('Peltier '//achar(48+k)//'   T'//achar(48+k)//' '//trim(num(s%tsens(k),1))//' C',x0+(k-1)*pw/2+8,ypel+1,c_ink)
+   call box(x0+(k-1)*pw/2+1,ypel,pw/2-2,hp,c)
+   if(sxr-sxl>200.and.yl+(k+1)*rowh<yfe)then
+    call box(sxl+4,yl+k*rowh,196d0,22d0,rgba(22,14,20,235))
+    call txt('Peltier '//achar(48+k)//'  T'//achar(48+k)//' '//trim(num(s%tsens(k),1))//' C',sxl+8,yl+k*rowh+2,c_ink)
+   end if
    if(abs(v)>.05d0)then
     if(v>0)then
-     call arrow(x0+(k-.5d0)*pw/2,ypel+6,x0+(k-.5d0)*pw/2,ypel-8-10*v,rgba(255,120,80,255),1.5d0)
+     call arrow(x0+(k-.5d0)*pw/2,ypel+hp/2,x0+(k-.5d0)*pw/2,ypel-8-10*v,rgba(255,120,80,255),1.5d0)
     else
-     call arrow(x0+(k-.5d0)*pw/2,ypel-4,x0+(k-.5d0)*pw/2,ypel+14-8*v,rgba(110,170,255,255),1.5d0)
+     call arrow(x0+(k-.5d0)*pw/2,ypel-4,x0+(k-.5d0)*pw/2,ypel+hp+6-8*v,rgba(110,170,255,255),1.5d0)
     end if
    end if
   end do
   do i=0,7
    tw=s%tz(1+i/4)
    if(i==0.or.i==7)tw=tw-s%edge
-   call box(x0+i*wx,yblk,wx+.5d0,46d0,tcol(tw))
+   call box(x0+i*wx,yblk,wx+.5d0,hb,tcol(tw))
   end do
-  call txt('block',x0-50,yblk+18,c_ink)
-  ! two thermistors, one per Peltier zone, between tubes 2-3 and 6-7
-  do k=1,2
-   bx=x0+(4*k-2)*wx;by=yblk+34
-   call disc(bx,by,3.5d0,c_ink,1d0)
+  do k=1,2                                       ! thermistors between tubes 2-3 and 6-7
+   bx=x0+(4*k-2)*wx;by=yblk+hb*.75d0
+   call disc(bx,by,max(2.5d0,1.5d0*km),c_ink,1d0)
   end do
-  ! ---- tubes: cap, conical body, liquid with fluorescence
-  do i=0,7
+  do i=0,7                                       ! tubes: cap, conical body, liquid
    cx=x0+i*wx+wx/2
    liq=s%liquid(i+1)
    c=rgba(215,215,228,255);if(s%seal<1)c=mix(rgba(120,120,125,255),c,s%seal)
-   call box(cx-wx*.34d0,ycap-s%lift,wx*.68d0,6d0,c)
-   call seg(cx-wx*.3d0,ytube-s%lift,cx-wx*.12d0,yblk+40-s%lift,rgba(200,200,215,255),1.5d0)
-   call seg(cx+wx*.3d0,ytube-s%lift,cx+wx*.12d0,yblk+40-s%lift,rgba(200,200,215,255),1.5d0)
-   call seg(cx-wx*.12d0,yblk+40-s%lift,cx+wx*.12d0,yblk+40-s%lift,rgba(200,200,215,255),1.5d0)
+   call box(cx-wx*.34d0,ycap-s%lift,wx*.68d0,ytube-ycap,c)
+   call seg(cx-wx*.3d0,ytube-s%lift,cx-wx*.12d0,ybt-s%lift,rgba(200,200,215,255),1.5d0)
+   call seg(cx+wx*.3d0,ytube-s%lift,cx+wx*.12d0,ybt-s%lift,rgba(200,200,215,255),1.5d0)
+   call seg(cx-wx*.12d0,ybt-s%lift,cx+wx*.12d0,ybt-s%lift,rgba(200,200,215,255),1.5d0)
    v=s%glow(i+1)*s%led*s%seal*(1-s%misalign*i/7d0)*(.35d0+.65d0*s%reading)
    emc=mix(rgba(40,90,60,255),rgba(110,255,140,255),v)
-   call tube_liquid(cx,ytube-s%lift,yblk+40-s%lift,wx*.3d0,wx*.12d0,26*liq,emc)
-   if(v>0)call glow(cx,yblk+28-s%lift,wx*.45d0,rgba(110,255,140,255),.5d0*v)
-   if(s%autofl>0)call glow(cx,ytube+6-s%lift,wx*.4d0,rgba(255,240,140,255),.3d0)
-   if(s%condense>0)call disc(cx+2*sin(t+i),ycap+8+mod(t*6+i*5,10d0),2.2d0,rgba(150,210,255,255),.9d0)
+   call tube_liquid(cx,ytube-s%lift,ybt-s%lift,wx*.3d0,wx*.12d0,.55d0*(ybt-ytube)*liq,emc)
+   if(v>0)call glow(cx,ybt-.3d0*(ybt-ytube)-s%lift,wx*.45d0,rgba(110,255,140,255),.5d0*v)
+   if(s%autofl>0)call glow(cx,ytube+.2d0*(ybt-ytube)-s%lift,wx*.4d0,rgba(255,240,140,255),.3d0)
+   if(s%condense>0)call disc(cx+.1d0*wx*sin(t+i),ytube+mod(t*6+i*5,.3d0*(ybt-ytube)),max(1.5d0,.2d0*wx), &
+    rgba(150,210,255,255),.9d0)
    if(s%bubbles>0.and.(i==2.or.i==5))then
     do k=1,s%bubbles
-     call disc(cx-3+5*(k-1),yblk+34-s%lift-mod(t*12+k*9,22d0),3d0,c_ink,.8d0)
+     call disc(cx-.15d0*wx+.25d0*wx*(k-1),ybt-.15d0*(ybt-ytube)-s%lift-mod(t*12+k*9,.5d0*(ybt-ytube)), &
+      max(1.5d0,.15d0*wx),c_ink,.8d0)
     end do
    end if
-   if(s%droplets>0.and.(i==1.or.i==6))call disc(cx+wx*.22d0,ytube+4+min(28d0,max(0d0,(mod(t,12d0)-6)*7)),2.6d0, &
-    rgba(110,200,255,255),1d0)
+   if(s%droplets>0.and.(i==1.or.i==6))call disc(cx+wx*.22d0,ytube+min(.7d0*(ybt-ytube),max(0d0,(mod(t,12d0)-6)*7)), &
+    max(1.5d0,.15d0*wx),rgba(110,200,255,255),1d0)
    if(s%nospin>0)then
-    call disc(cx-wx*.2d0,ytube+6,2.6d0,rgba(110,200,255,255),1d0);call disc(cx+wx*.18d0,ytube+10,2.2d0,rgba(110,200,255,255),1d0)
+    call disc(cx-wx*.2d0,ytube+.15d0*(ybt-ytube),max(1.5d0,.14d0*wx),rgba(110,200,255,255),1d0)
+    call disc(cx+wx*.18d0,ytube+.25d0*(ybt-ytube),max(1.2d0,.12d0*wx),rgba(110,200,255,255),1d0)
    end if
   end do
-  call txt('tubes',x0-50,ytube-4-s%lift,c_ink)
-  ! ---- lid stack: heated lid, excitation filter, LED board (lifts when opened)
-  call box(x0-6,ylid,pw+12,12d0,tcol(s%tlid))
-  call txt('lid',x0-50,ylid-3,c_ink)
+  call box(x0-4*km,ylid,pw+8*km,ycap-ylid-1,tcol(s%tlid))    ! lid stack (lifts when opened)
   c=rgba(90,140,255,255);if(s%dirt>0)c=mix(c,rgba(120,90,60,255),.5d0)
-  call box(x0-6,yfil,pw+12,4d0,c);call txt('Ex filter',x0-76,yfil-7,c_ink)
-  if(s%dirt>0)call disc(x0+4*wx,yfil+2,wx*.9d0,rgba(120,90,60,255),.6d0)
-  call box(x0-6,yled-4,pw+12,6d0,rgba(40,120,70,255));call txt('LEDs',x0-50,yled-8,c_ink)
+  call box(x0-4*km,yfil,pw+8*km,max(2d0,km),c)
+  if(s%dirt>0)call disc(x0+4*wx,yfil+1,wx*.9d0,rgba(120,90,60,255),.6d0)
+  call box(x0-4*km,yled-3,pw+8*km,max(3d0,1.6d0*km),rgba(40,120,70,255))
   do i=0,7
    cx=x0+i*wx+wx/2+s%misalign*wx*.35d0
    ledc=mix(rgba(50,60,90,255),rgba(140,200,255,255),s%led*s%reading)
-   call ball(cx,yled+5,4d0,ledc)
+   call ball(cx,yled+2*km,max(2.5d0,1.6d0*km),ledc)
    if(s%reading>0.and.s%lidopen<=0)then
-    call glow(cx,yled+5,10d0,rgba(140,200,255,255),.6d0*s%led)
-    call dash(cx,yled+10,cx,ycap-s%lift,rgba(120,180,255,255),1.3d0*s%led,t*70)
+    call glow(cx,yled+2*km,max(6d0,4*km),rgba(140,200,255,255),.6d0*s%led)
+    call dash(cx,yled+3*km,cx,ycap-s%lift,rgba(120,180,255,255),1.3d0*s%led,t*70)
    end if
   end do
-  call box(x0+pw/2-64,ylid+1,128d0,10d0,tcol(s%tlid))
-  call txt('heated lid '//trim(num(s%tlid,0))//' C',x0+pw/2-56,ylid-1,c_bg)
-  ! ---- section A-A: tube pair with side photodiode boards
-  sx0=x+lw+14;sw=w-lw-22
-  call box(sx0+18,yblk,sw-36,46d0,tcol(s%tz(1)))
-  call box(sx0+18,ylid,sw-36,12d0,tcol(s%tlid))
-  call box(sx0+18,yfil,sw-36,4d0,rgba(90,140,255,255))
-  call box(sx0+18,yled-4,sw-36,6d0,rgba(40,120,70,255))
+  if(x0+pw+8*km+170<x+lw)then
+   call txt('heated lid '//trim(num(s%tlid,0))//' C',x0+pw+8*km+10,ylid+(ycap-ylid)/2-9,c_ink)
+  end if
+  ! left label column with leader lines
+  lab(1)='LEDs';tgt(1)=yled
+  lab(2)='Ex filter';tgt(2)=yfil
+  lab(3)='heated lid';tgt(3)=ylid+(ycap-ylid)/2
+  lab(4)='tubes';tgt(4)=ycap+2
+  lab(5)='block';tgt(5)=yblk+hb/2
+  lab(6)='Peltier x2';tgt(6)=ypel+hp/2
+  lab(7)='Cu spreader';tgt(7)=ycu+hc/2
+  call label_column(lab,tgt,7,x+6,x0-4*km-4)
+  end if
+  if(cyc_part/=1)then
+  ! =================================================================== section A-A
+  full=cyc_part==2
+  if(full)then
+   sx0=x;sw=w*.58d0;cxs=x+170+(sw-170)/2
+  else
+   sx0=x+lw+14;sw=w-lw-22;cxs=sx0+sw/2
+  end if
+  bw=15*km;wx=9*km;shw=35*km
+  call box(cxs-bw,yblk,2*bw,hb,tcol(s%tz(1)))
+  call box(cxs-bw-2*km,ylid,2*bw+4*km,ycap-ylid-1,tcol(s%tlid))
+  call box(cxs-bw-2*km,yfil,2*bw+4*km,max(2d0,km),rgba(90,140,255,255))
+  call box(cxs-bw-2*km,yled-3,2*bw+4*km,max(3d0,1.6d0*km),rgba(40,120,70,255))
   do k=0,1
-   cx=sx0+sw*(.36d0+.28d0*k)
-   call box(cx-10,ycap-s%lift,20d0,6d0,rgba(215,215,228,255))
-   call seg(cx-9,ytube-s%lift,cx-4,yblk+40-s%lift,rgba(200,200,215,255),1.5d0)
-   call seg(cx+9,ytube-s%lift,cx+4,yblk+40-s%lift,rgba(200,200,215,255),1.5d0)
+   cx=cxs+(k-.5d0)*wx
+   call box(cx-wx*.34d0,ycap-s%lift,wx*.68d0,ytube-ycap,rgba(215,215,228,255))
+   call seg(cx-wx*.3d0,ytube-s%lift,cx-wx*.12d0,ybt-s%lift,rgba(200,200,215,255),1.5d0)
+   call seg(cx+wx*.3d0,ytube-s%lift,cx+wx*.12d0,ybt-s%lift,rgba(200,200,215,255),1.5d0)
    v=s%reading_level*s%led*s%seal*(.35d0+.65d0*s%reading)
-   call tube_liquid(cx,ytube-s%lift,yblk+40-s%lift,9d0,4d0,26d0,mix(rgba(40,90,60,255),rgba(110,255,140,255),v))
-   call ball(cx+s%misalign*8,yled+5,4d0,mix(rgba(50,60,90,255),rgba(140,200,255,255),s%led*s%reading))
+   call tube_liquid(cx,ytube-s%lift,ybt-s%lift,wx*.3d0,wx*.12d0,.55d0*(ybt-ytube),mix(rgba(40,90,60,255),rgba(110,255,140,255),v))
+   call ball(cx+s%misalign*.8d0*km,yled+2*km,max(2.5d0,1.6d0*km),mix(rgba(50,60,90,255),rgba(140,200,255,255),s%led*s%reading))
    if(s%reading>0.and.s%lidopen<=0)then
-    call dash(cx+s%misalign*8,yled+10,cx+s%misalign*8,yblk+20,rgba(120,180,255,255),1.3d0,t*70)
+    call dash(cx+s%misalign*.8d0*km,yled+3*km,cx+s%misalign*.8d0*km,yblk+hb*.4d0,rgba(120,180,255,255),1.3d0,t*70)
     dx=-1;if(k==1)dx=1
-    call dash(cx,yblk+26,cx+dx*(sw*.36d0-8),yblk+26,rgba(110,255,140,255),1.3d0*v+.2d0,t*70)
-    if(s%xtalk>0)call dash(cx,yblk+32,cx+dx*(sw*.36d0-8),yblk+32,rgba(255,220,70,255),1.3d0*s%xtalk*2,t*70)
+    call dash(cx,yblk+hb*.55d0,cxs+dx*(bw+2*km),yblk+hb*.55d0,rgba(110,255,140,255),1.3d0*v+.2d0,t*70)
+    if(s%xtalk>0)call dash(cx,yblk+hb*.7d0,cxs+dx*(bw+2*km),yblk+hb*.7d0,rgba(255,220,70,255),1.3d0*s%xtalk*2,t*70)
    end if
   end do
-  do k=0,1
-   bx=sx0+4+k*(sw-12)
-   call box(bx,yblk-8,6d0,58d0,rgba(40,120,70,255))
+  do k=0,1                                         ! photodiode boards with emission filters
+   bx=cxs-bw-2*km-6+k*(2*bw+4*km+6)
+   call box(bx,yblk-8,6d0,hb+16,rgba(40,120,70,255))
    c=rgba(110,255,140,255);if(s%xtalk>0)c=mix(c,rgba(255,220,70,255),.5d0)
-   call box(bx+6-k*9,yblk+8,3d0,30d0,c)
+   call box(bx+6-k*9,yblk+hb*.2d0,3d0,hb*.65d0,c)
   end do
-  call txt('section A-A',sx0+22,yblk+28,c_bg)
-  call txt('photodiode',sx0,yblk+56,c_ink);call txt('boards + Em filters',sx0,yblk+72,c_ink)
+  if(full)then
+   ! Peltier, copper spreader and the 70 mm wide heat sink (fins run along the air flow)
+   call box(cxs-bw,ypel,2*bw,hp,mix(rgba(60,60,72,255),rgba(235,90,60,255),max(0d0,s%duty(1))))
+   call box(cxs-bw-3*km,ycu,2*bw+6*km,hc,rgba(205,120,70,255))
+   call box(cxs-shw,yfin,2*shw,6*km,rgba(150,150,165,255))
+   n=int(2*shw/max(4d0,3.5d0*km))
+   do i=0,n
+    c=rgba(150,150,165,255)
+    if(s%tsink>45)c=mix(c,rgba(230,70,50,255),min(1d0,(s%tsink-45)/20))
+    call box(cxs-shw+i*max(4d0,3.5d0*km),yfin+6*km,max(2d0,1.4d0*km),yfe-yfin-6*km,c)
+   end do
+   call box(cxs-shw+6,yfin+10*km,220d0,22d0,rgba(22,14,20,235))
+   call txt('heat sink, 70 mm wide',cxs-shw+10,yfin+10*km+2,c_ink)
+   call box(cxs-shw+6,yfin+10*km+rowh,250d0,22d0,rgba(22,14,20,235))
+   call txt('fan behind: air along fins',cxs-shw+10,yfin+10*km+rowh+2,c_ink)
+   lab(1)='LED board';tgt(1)=yled
+   lab(2)='Ex filter';tgt(2)=yfil
+   lab(3)='heated lid';tgt(3)=ylid+(ycap-ylid)/2
+   lab(4)='tubes (2 rows)';tgt(4)=ycap+2
+   lab(5)='block 30 mm';tgt(5)=yblk+hb*.3d0
+   lab(6)='photodiode board';tgt(6)=yblk+hb*.8d0
+   lab(7)='Peltier';tgt(7)=ypel+hp/2
+   lab(8)='Cu spreader';tgt(8)=ycu+hc/2
+   call label_column(lab,tgt,8,x+6,cxs-bw-2*km-10)
+   call seg(cxs+shw-20*km,yfe+12,cxs+shw,yfe+12,c_ink,2d0);call txt('20 mm',cxs+shw-20*km,yfe+16,c_ink)
+   ! detector strip on the right
+   detx=x+w*.62d0;detw=w*.34d0;deth=150;dety=yblk
+  else
+   call txt('photodiode',sx0,yblk+hb+14,c_ink);call txt('boards + Em filters',sx0,yblk+hb+34,c_ink)
+   call txt('section A-A',sx0,yblk+hb+54,c_cyan)
+   detx=sx0;dety=y+h-92;detw=sw;deth=58
+  end if
   ! ---- detector strip: LED on / LED off samples of the tube being read
-  detx=sx0;dety=y+h-92;detw=sw;deth=58
   call box(detx,dety,detw,deth,rgba(14,10,16,255));call frame_rect(detx,dety,detw,deth,c_purple,1d0)
   call txt('photodiode ADC  tube '//trim(num(real(s%mux,c_double),0)),detx+4,dety+2,c_cyan)
   ly=dety+deth-8
@@ -599,10 +666,28 @@ contains
    if(s%reading>0.and.mod(i/8,2)==0)vv=s%reading_level*s%led*s%seal*.8d0+.08d0
    if(s%noise>0)vv=vv+.05d0*s%noise*sin(i*12.9898d0+t*41)
    lo=min(.92d0,max(0d0,vv));if(s%sat>0.and.vv>0)lo=.92d0
-   call seg(ux,ly-lo*(deth-22),ux+(detw-8)/64d0,ly-lo*(deth-22),rgba(110,255,140,255),1.5d0)
+   call seg(ux,ly-lo*(deth-26),ux+(detw-8)/64d0,ly-lo*(deth-26),rgba(110,255,140,255),1.5d0)
   end do
-  if(s%sat>0)call seg(detx+4,ly-.92d0*(deth-22),detx+detw-4,ly-.92d0*(deth-22),rgba(255,80,60,255),1d0)
-  call txt('LED on / off',detx+4,dety+deth+2,c_ink)
+  if(s%sat>0)call seg(detx+4,ly-.92d0*(deth-26),detx+detw-4,ly-.92d0*(deth-26),rgba(255,80,60,255),1d0)
+  call txt('LED on / off',detx+4,dety+deth+4,c_ink)
+  end if
+  lx=0;yl=0
+ end subroutine
+! @nativefn NR2-ANI-F0050
+ subroutine label_column(lab,tgt,n,xl,xe)
+  ! Labels stacked top-down at least one text line apart, each with a leader line to its part.
+  character(len=*),intent(in)::lab(:)
+  real(c_double),intent(in)::tgt(:),xl,xe
+  integer,intent(in)::n
+  integer::i
+  real(c_double)::yy,prev
+  prev=-1d9
+  do i=1,n
+   yy=max(tgt(i)-9,prev+22)
+   call txt(trim(lab(i)),xl,yy,c_ink)
+   call seg(xl+9.5d0*len_trim(lab(i))+6,yy+10,xe,tgt(i),rgba(150,120,160,255),1d0)
+   prev=yy
+  end do
  end subroutine
 ! @nativefn NR2-ANI-F0041
  function phase_text(ph) result(s)

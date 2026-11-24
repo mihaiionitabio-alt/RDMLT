@@ -326,7 +326,7 @@ contains
   call lbl('THERMAL ELECTRONICS  -  H-bridge Peltier drive, sensing and PI control (simulated)',20d0,10d0,cb_)
   ! supply, fuse, bulk capacitor, 12 V bus
   call ln(60d0,110d0,60d0,160d0,cw_);call lnw(40d0,160d0,80d0,160d0,cw_,3d0);call ln(48d0,172d0,72d0,172d0,cw_);call ln(60d0,172d0,60d0,230d0,cw_);call gnd(60d0,230d0)
-  call lbl('12 V',86d0,150d0,cl_);call lbl('PSU',86d0,172d0,cl_)
+  call lbl('12 V DC',86d0,150d0,cl_);call lbl('AC/DC PSU',86d0,172d0,cl_)
   call ln(60d0,110d0,110d0,110d0,cw_);call box(px(110d0),py(103d0),40*ss,14*ss,cp_);call lbl('F1',112d0,82d0,cl_);call ln(150d0,110d0,840d0,110d0,cw_)
   call dot(200d0,110d0);call cap(200d0,110d0,200d0,220d0,cw_);call gnd(200d0,220d0);call lbl('C1 470u',212d0,150d0,cl_)
   call tag('Vbus '//trim(num(tq(22),2))//' V',170d0,60d0,cv_)
@@ -387,7 +387,7 @@ contains
   call ln(930d0,130d0,930d0,160d0,cw_);call lbl('S1 lid',940d0,112d0,cl_)
   if(hot==5)call highlight(888d0,100d0,60d0,70d0)
   call mos(930d0,200d0,q(5),'Q5',.true.);call ln(930d0,240d0,930d0,260d0,cw_)
-  call res(930d0,260d0,930d0,360d0,cb_);call gnd(930d0,360d0);call lbl('Lid heater 8R',946d0,296d0,cl_)
+  call res(930d0,260d0,930d0,360d0,cb_);call gnd(930d0,360d0);call lbl('Lid heater 8R',946d0,296d0,cl_);call lbl('(to 120 C)',946d0,270d0,cp_)
   if(hot==3)call highlight(900d0,250d0,60d0,120d0)
   call tag(trim(num(tq(17),1))//' W',946d0,322d0,cv_)
   if(q(5).and..not.fuse_blown)call flow(930d0,240d0,930d0,360d0,.8d0)
@@ -397,7 +397,7 @@ contains
   call ln(1080d0,196d0,1080d0,250d0,cw_);call ln(1080d0,140d0,1130d0,140d0,cw_);call ln(1080d0,250d0,1130d0,250d0,cw_)
   call dio(1130d0,250d0,1130d0,140d0,cl_,0)
   call mos(1080d0,290d0,q(6),'Q6',.true.);call ln(1080d0,330d0,1080d0,350d0,cw_);call gnd(1080d0,350d0)
-  call lbl('Fan M1',1000d0,148d0,cl_)
+  call lbl('Fan M1',1000d0,148d0,cl_);call lbl('4-wire',1000d0,170d0,cp_)
   if(hot==4)call highlight(1040d0,130d0,110d0,140d0)
   call tag(trim(num(tq(14),0))//' rpm',990d0,380d0,merge(cr_,cv_,tq(14)<100))
   call tag(trim(num(1000*tq(15),0))//' mA',990d0,406d0,cv_)
@@ -407,7 +407,7 @@ contains
   call lbl('3.3 V ref',40d0,640d0,cl_);call ln(60d0,665d0,60d0,690d0,cw_);call ln(60d0,690d0,360d0,690d0,cw_)
   call dot(120d0,690d0);call res(120d0,690d0,120d0,760d0,cw_);call dot(120d0,760d0)
   call res(120d0,760d0,120d0,840d0,cv_);call ln(100d0,820d0,140d0,780d0,cv_);call gnd(120d0,840d0)
-  call lbl('R1 10k',132d0,700d0,cl_);call lbl('NTC1 block',132d0,804d0,cv_)
+  call lbl('R1 10k',132d0,700d0,cl_);call lbl('NTC1 block z1',132d0,804d0,cv_)
   if(hot==2)call highlight(92d0,750d0,140d0,100d0)
   call ln(120d0,760d0,170d0,760d0,cw_);call res(170d0,760d0,230d0,760d0,cw_);call dot(230d0,760d0);call cap(230d0,760d0,230d0,830d0,cw_)
   call gnd(230d0,830d0);call ln(230d0,760d0,560d0,760d0,cw_)
@@ -431,12 +431,25 @@ contains
    call lbl('loop running',576d0,836d0,cg_)
   end if
   ! heat path: block, tubes, heat sink (labels with live temperatures)
-  call blk(930d0,430d0,300d0,170d0,'Heat path',cl_)
+  call blk(930d0,430d0,300d0,200d0,'Heat path',cl_)
   call lbl('Block  '//trim(num(tq(2),1))//' C',944d0,462d0,cw_)
   call lbl('Tube   '//trim(num(tq(6),1))//' C',944d0,488d0,cw_)
   call lbl('Edge   '//trim(num(tq(7),1))//' C',944d0,514d0,cw_)
   call lbl('Sink   '//trim(num(tq(4),1))//' C',944d0,540d0,merge(cr_,cw_,tq(4)>50))
   call lbl('Lid    '//trim(num(tq(5),1))//' C',944d0,566d0,cw_)
+  call lbl('Block z2 '//trim(num(tq(25),1))//' C',944d0,594d0,cw_)
+  ! second Peltier zone (duty-averaged) and instrument data from the Open qPCR manual
+  call blk(1250d0,470d0,330d0,190d0,'Zone 2: Q7-Q10 + TEC2',cl_)
+  call box(px(1270d0),py(504d0),90*ss,32*ss,rgba(60,40,70,255));call frame_rect(px(1270d0),py(504d0),90*ss,32*ss,cw_,max(1d0,1.4d0*ss))
+  call lbl('TEC2',1290d0,508d0,merge(cb_,cv_,tq(26)>=0))
+  call lbl('duty '//trim(num(100*tq(28),0))//' %',1380d0,504d0,cw_)
+  call lbl('I '//trim(num(tq(26),2))//' A  V '//trim(num(tq(27),1))//' V',1266d0,548d0,cw_)
+  call lbl('T block z2 '//trim(num(tq(25),1))//' C',1266d0,574d0,cw_)
+  call lbl('NTC3 z2 ADC '//trim(num(tq(30),0)),1266d0,600d0,cw_)
+  call lbl('DC input '//trim(num(tq(29),0))//' W',1266d0,626d0,cb_)
+  call lbl('Open qPCR: 16 wells, dual Peltier, 2 thermistors,',1250d0,676d0,cp_)
+  call lbl('100-240 V AC, 75 W avg / 350 W peak, lid to 120 C,',1250d0,700d0,cp_)
+  call lbl('max ramp 5 C/s, 28 x 24 x 19 cm (user manual)',1250d0,724d0,cp_)
   if(hot==6.or.hot==7)call highlight(930d0,452d0,300d0,90d0)
   call scope(930d0,640d0,300d0,240d0,1,2,20d0,110d0,'Scope: Tset / Tblock',cb_,cg_)
   iled=0;dir=iled
@@ -446,12 +459,13 @@ contains
  subroutine optical_sheet()
   real(c_double)::a,sig
   logical::clip
+  integer::i
   clip=oq(16)>.5d0;sig=min(1d0,oq(8))
   call lbl('OPTICAL ELECTRONICS  -  LED current driver, light path, photodiode TIA and ADC (simulated)',20d0,10d0,cb_)
   ! +5 V rail, LED, series resistor, NPN, sense resistor
   call lbl('+5 V',40d0,70d0,cl_);call ln(60d0,100d0,420d0,100d0,cw_)
   call dot(360d0,100d0);call res(360d0,100d0,360d0,170d0,cw_);call lbl('R 47',372d0,124d0,cl_)
-  call dio(360d0,170d0,360d0,270d0,cb_,1);call lbl('D1 LED 470 nm',380d0,200d0,cb_)
+  call dio(360d0,170d0,360d0,270d0,cb_,1);call lbl('D1 LED (blue), 1 of 16',380d0,200d0,cb_)
   call glow(px(400d0),py(220d0),46*ss*min(1d0,oq(1)/.02d0),cv_,.35d0)
   call npn(340d0,320d0,'Q1');call ln(360d0,270d0,360d0,280d0,cw_)
   call dot(360d0,360d0);call res(360d0,370d0,360d0,450d0,cw_);call ln(360d0,360d0,360d0,370d0,cw_);call gnd(360d0,450d0)
@@ -468,20 +482,20 @@ contains
   if(hot==11)call highlight(30d0,160d0,420d0,300d0)
   ! light path: LED -> excitation filter -> tube -> emission filter -> photodiode
   call lnw(430d0,220d0,520d0,220d0,cv_,4d0*min(1d0,oq(1)/.02d0))
-  call box(px(520d0),py(180d0),14*ss,80*ss,rgba(60,120,200,255));call lbl('Ex',514d0,266d0,cl_)
+  call box(px(520d0),py(180d0),14*ss,80*ss,rgba(60,120,200,255));call lbl('Ex',514d0,266d0,cl_);call lbl('in lid heater',480d0,290d0,cp_)
   call lnw(534d0,220d0,600d0,220d0,cv_,4d0*min(1d0,oq(1)/.02d0))
   call frame_rect(px(600d0),py(150d0),80*ss,150*ss,cw_,max(1d0,1.6d0*ss))
   a=sig
   call box(px(606d0),py(210d0),68*ss,84*ss,rgba(40+nint(80*a),120+nint(120*a),60+nint(40*a),255))
   call lbl('Tube',606d0,306d0,cl_);call lbl('sample',598d0,330d0,cl_)
   call lnw(680d0,240d0,760d0,240d0,cg_,1+4d0*sig)
-  call box(px(760d0),py(200d0),14*ss,80*ss,rgba(60,180,90,255));call lbl('Em',754d0,286d0,cl_)
+  call box(px(760d0),py(200d0),14*ss,80*ss,rgba(60,180,90,255));call lbl('Em ch1',740d0,286d0,cl_);call lbl('508-532 nm',730d0,310d0,cp_)
   call lnw(774d0,240d0,830d0,240d0,cg_,1+4d0*sig)
   if(hot==14)call highlight(510d0,140d0,280d0,210d0)
   if(hot==16)call highlight(746d0,190d0,44d0,104d0)
   ! photodiode + TIA (U2, Rf || Cf)
   call ln(850d0,260d0,850d0,300d0,cw_);call dio(850d0,420d0,850d0,300d0,cw_,2);call gnd(850d0,440d0);call ln(850d0,420d0,850d0,440d0,cw_)
-  call lbl('PD1',870d0,400d0,cl_)
+  call lbl('PD1 ch1',870d0,400d0,cl_);call lbl('ch2 PD: 573-597 nm',760d0,490d0,cp_);call lbl('(dual-channel model)',760d0,512d0,cp_)
   call ln(850d0,300d0,950d0,300d0,cw_);call dot(900d0,300d0)
   call opamp(950d0,317d0,80d0,'U2 TIA',.false.,.false.);call ln(950d0,337d0,935d0,337d0,cw_);call ln(935d0,337d0,935d0,360d0,cw_);call gnd(935d0,360d0)
   call ln(900d0,300d0,900d0,200d0,cw_);call ln(900d0,200d0,940d0,200d0,cw_);call res(940d0,200d0,1020d0,200d0,cw_);call ln(1020d0,200d0,1060d0,200d0,cw_)
@@ -505,6 +519,13 @@ contains
   call tag('x'//trim(num(oq(9),1))//'  '//trim(num(oq(5),2))//' V',1150d0,330d0,merge(cr_,cv_,clip))
   ! MCU / ADC
   call blk(1350d0,330d0,230d0,250d0,'ADC 12 bit / MCU',cv_)
+  call lbl('16:1 well mux',1364d0,540d0,cp_)
+  ! well scan: each of the 16 wells (2 x 8) has its own LED and photodiode, read in turn
+  call lbl('Well scan',560d0,40d0,cl_)
+  do i=0,15
+   call box(px(660+i*28d0),py(42d0),22*ss,22*ss,merge(cg_,rgba(50,36,56,255),i==mod(int(tt*4),16)))
+  end do
+  call lbl('well '//trim(num(dble(mod(int(tt*4),16)+1),0)),1120d0,40d0,cg_)
   call lbl('FAM '//trim(num(oq(7),0)),1364d0,370d0,merge(cr_,cw_,clip))
   call lbl('YY  '//trim(num(oq(10),0)),1364d0,396d0,cw_)
   call lbl('cycle '//trim(num(oq(15),0)),1364d0,422d0,cw_)
@@ -696,7 +717,7 @@ contains
     c3='- dry thermal interface'
     m1='V(TEC) '//trim(num(tq(10),2))//' V'
     m2='I(TEC) '//trim(num(tq(9),2))//' A'
-    m3='P      '//trim(num(tq(11),1))//' W'
+    m3='T z1/z2 '//trim(num(tq(2),1))//'/'//trim(num(tq(25),1))//' C'
     m4='Seebeck '//trim(num(tq(23),2))//' V'
     call meter(650d0,140d0,'V '//trim(num(tq(10),2))//' V','I '//trim(num(tq(9),2))//' A', &
      'R '//trim(num(abs(tq(10))/max(.05d0,abs(tq(9))),2))//' ohm',400d0,290d0,520d0,290d0)

@@ -32,10 +32,12 @@ module native_circuit
  !  tq: 1 Tset 2 Tblock 3 Tmeas 4 Tsink 5 Tlid 6 Ttube 7 Tedge 8 duty 9 I_tec(avg) 10 V_tec(avg)
  !      11 P_tec 12 ADC block code 13 ADC current code 14 fan rpm 15 I_fan 16 lid duty 17 P_lid
  !      18 interlock(0/1) 19 sensor bias 20 I_tec(inst) 21 I_shunt 22 V_bus 23 Seebeck V 24 ADC lid
+ !      25 Tblock zone 2 26 I_tec2 27 V_tec2 28 duty 2 29 DC input power 30 ADC NTC zone 2
  !  tr: 1..4 bridge Q1..Q4 on, 5 lid switch, 6 fan switch
  !  oq: 1 I_led 2 V_dac 3 I_ph (nA) 4 V_tia 5 V_gain 6 V_adc 7 ADC code 8 signal 9 gain 10 YY code
  !      11 P_led (mW) 12 V_ce 13 V_be 14 noise (nA) 15 cycle 16 clipped(0/1)
- real(dp),save :: tq(24)=0,oq(16)=0
+ real(dp),save :: tq(32)=0,oq(16)=0
+ real(dp),save :: tb2=60,integ2=0,i2avg=0
  integer,save :: tr(6)=0,osat(8)=0
  real(dp),save :: orr=0
  integer,save :: oqn=0
@@ -274,7 +276,7 @@ contains
   end select
  end function
  subroutine ckt_reset()
-  tb=60;ts=30;tl=105;tt=60;om=1000;ilm=.083d0;integ=0;sim_t=0;iavg=0;vavg=0;pavg=0;lidint=0
+  tb=60;tb2=60;integ2=0;i2avg=0;ts=30;tl=105;tt=60;om=1000;ilm=.083d0;integ=0;sim_t=0;iavg=0;vavg=0;pavg=0;lidint=0
   comp_t=25;burnt=.false.;fuse_blown=.false.;ipk=0;fuse_th=0;tenv=25
   xt_prev=0;xo_prev=0;vt=0;vo=0;xt_prev(1:2)=12;seed=12345;ufilt=0;tq=0;oq=0;tr=0;hist=0;osat=0
  end subroutine
@@ -441,6 +443,7 @@ contains
   end if
   iavg=iavg+(itec-iavg)*dt/.08d0;vavg=vavg+(vtec-vavg)*dt/.08d0;pavg=pavg+(itec*vtec-pavg)*dt/.08d0
   ufilt=ufilt+(u-ufilt)*dt/.05d0
+  call zone2(tset,interlock.or.fuse_blown,x(2))
   tq(1)=tset;tq(2)=tb;tq(3)=tmeas;tq(4)=ts;tq(5)=tl;tq(6)=tt;tq(7)=tedge;tq(8)=ufilt;tq(9)=iavg;tq(10)=vavg
   tq(11)=pavg;tq(12)=nint(4095*x(11)/3.3d0);tq(13)=nint(min(4095d0,4095*x(8)/3.3d0));tq(14)=om*60/(2*3.141592653589793d0)
   tq(15)=im;tq(16)=merge(1d0,0d0,q(5));tq(17)=x(13)**2/8;tq(18)=merge(1d0,0d0,interlock);tq(19)=bias
@@ -450,6 +453,25 @@ contains
    if(q(it))tr(it)=1
   end do
   vbe=0
+ end subroutine
+! @nativefn NR2-CKT-F0004
+ subroutine zone2(tset,off,vbus)
+  ! Second Peltier zone (the instrument has two Peltier modules and two block thermistors):
+  ! duty-averaged H-bridge model with its own PI loop and heat balance; shares the heat sink.
+  real(dp),intent(in)::tset,vbus
+  logical,intent(in)::off
+  real(dp),parameter::alpha=.05d0,rtec=1.6d0,kth=.35d0,cb=2.5d0
+  real(dp)::err,u,v,i,q,code
+  err=tset-tb2;integ2=max(-.6d0,min(.6d0,integ2+err*dt*1.2d0))
+  u=max(-1d0,min(1d0,.22d0*err+integ2));if(off)u=0
+  v=u*vbus;i=(v-alpha*(tb2-ts))/rtec;if(off)i=0
+  q=alpha*i*(tb2+273.15d0)+.5d0*i*i*rtec-kth*(tb2-ts)-.02d0*(tb2-25)
+  tb2=tb2+dt*q/cb
+  ts=ts+dt*(-alpha*i*(ts+273.15d0)+.5d0*i*i*rtec+kth*(tb2-ts))/15d0
+  i2avg=i2avg+(i-i2avg)*dt/.08d0
+  code=4095*rntc(tb2)/(1d4+rntc(tb2))
+  tq(25)=tb2;tq(26)=i2avg;tq(27)=v;tq(28)=u;tq(30)=nint(code)
+  tq(29)=abs(tq(9)*tq(10))+abs(i2avg*v)+tq(17)+12*abs(tq(15))+5
  end subroutine
 ! @nativefn NR2-CKT-F0001
  subroutine heat_parts(x,q)

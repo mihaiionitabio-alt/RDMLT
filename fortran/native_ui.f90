@@ -54,7 +54,7 @@ use native_audio
  integer,save::pv_channel=1
  logical,save::show_fault=.true.,show_structure=.false.,show_3d=.true.,view_mv=.false.
  integer,save::card_page=1
- integer,save::view_k=1,view_group=0
+ integer,save::view_k=1,view_group=0,view_part=1
  integer,save::struct_idx=1
  logical,save::pv_show_norm=.true.,pv_show_fault=.true.
  integer,save::theatre_k=1
@@ -187,7 +187,7 @@ contains
   character(len=220),intent(out)::l(12)
   integer::f
   f=scene_family(p_scenario);n=0;l=''
-  if(k==nviews())then
+  if(k==7)then
    call add('MISSY R2 numerical model (this project): full-model simulation of the case and of the normal run; all values simulated.')
    return
   end if
@@ -263,7 +263,7 @@ contains
   ! click: the group's own page with its views (or full screen when it has one view).
   integer,intent(in)::g,cx,cy,cw,ch
   integer(c_int32_t)::c
-  integer::n,v(2)
+  integer::n,v(4)
   call group_views(g,n,v)
   call case_view(v(1),real(cx,c_double),real(cy,c_double),real(cw,c_double),real(ch-74,c_double),anim_t)
   if(n>1)then
@@ -446,16 +446,17 @@ contains
  subroutine group_views(g,n,v)
   ! card groups: 1 technical drawings, 2 3D views, 3 electrical schematics, 4 curves
   integer,intent(in)::g
-  integer,intent(out)::n,v(2)
+  integer,intent(out)::n,v(4)
+  v=7
   select case(g)
   case(1)
-   n=2;v=[1,2]
+   n=2;v(1:2)=[1,2]
   case(2)
-   n=2;v=[3,4]
+   n=2;v(1:2)=[3,4]
   case(3)
-   n=2;v=[5,6]
+   n=2;v(1:2)=[5,6]
   case default
-   n=1;v=[7,7]
+   n=1
   end select
  end subroutine
 ! @nativefn NR2-M03-F0143
@@ -503,7 +504,7 @@ contains
   character(len=200)::t
   integer::f
   f=scene_family(p_scenario)
-  if(k==nviews())then
+  if(k==7)then
    t='Amplification curves of this case: fault (colours) against the normal run (grey dashed)';return
   end if
   select case(k)
@@ -547,11 +548,13 @@ contains
  subroutine case_view(k,x,y,w,h,t)
   integer,intent(in)::k
   real(c_double),intent(in)::x,y,w,h,t
-  if(k==nviews())then
+  if(k==7)then
    call plot_preview(nint(x)+10,nint(y)+10,nint(w)-20,nint(h)-20);return
   end if
   if(page==12.and.k<=2.and.scene_family(p_scenario)==1)then
-   call draw_instrument_stacked(p_scenario,scenario_bank(:,p_scenario),x,y,w,h,t,k==1);return
+   cyc_part=view_part
+   call draw_instrument_stacked(p_scenario,scenario_bank(:,p_scenario),x,y,w,h,t,k==1)
+   cyc_part=0;return
   end if
   if(page==12.and.k<=2)then        ! other drawings: twice as large, still into the 4K frame
    render_scale=4
@@ -581,7 +584,7 @@ contains
   ! Full-screen menu: every view of the selected case as a live preview; click one to open it.
   integer::n,k,tw,th,tx,ty,cols,i,vl(7)
   if(view_group>0)then
-   call group_views(view_group,n,vl(1:2))
+   call group_views(view_group,n,vl(1:4))
   else
    n=0
    do i=1,nviews()
@@ -2060,6 +2063,10 @@ contains
    end do
    call label(trim(view_kind(view_k))//'   '//trim(view_desc(view_k)),24,18,orange,1)
    if((view_k==3.and.scene_family(p_scenario)==2).or.view_k==4)call button(102,0,'Molecule tools',width-600,10,170,42,.true.)
+   if(view_k<=2.and.scene_family(p_scenario)==1)then
+    call button(108,1,'Front view',width-1060,10,140,42,view_part/=1)
+    call button(108,2,'Section A-A',width-910,10,150,42,view_part/=2)
+   end if
    if(view_k==5.or.view_k==6)call button(107,0,'Short circuit: '//trim(short_name(ckt_short)),width-760,10,330,42,.true.)
    call button(99,-1,'<',width-420,10,50,42,.true.)
    call button(99,1,'>',width-365,10,50,42,.true.)
@@ -2254,7 +2261,7 @@ contains
 ! @nativefn NR2-M03-F0011
  subroutine action(id,arg)
   integer,intent(in)::id,arg
-  integer::nbk,vbk(2)
+  integer::nbk,vbk(4)
   select case(id)
   case(1)
    ! Go back one level: case page -> catalogue (same catalogue page), view -> view menu ->
@@ -2393,7 +2400,7 @@ contains
     view_k=2
    end if
   case(104)
-   view_mv=.false.;page=12;view_k=nviews();view_group=4
+   view_mv=.false.;page=12;view_k=7;view_group=4
   case(100)
    mv_clip=max(0d0,mv_clip-.05d0)
   case(101)
@@ -2404,7 +2411,9 @@ contains
     call mv_open(max(1,struct_idx));mv_spin=.true.
    end if
   case(97)
-   view_k=arg;view_group=group_of(arg);page=12;call enter_view()
+   view_k=arg;view_group=group_of(arg);page=12;view_part=1;call enter_view()
+  case(108)
+   view_part=arg
   case(107)
    ckt_short=mod(ckt_short+1,5)    ! cycle through the simulated shorts (restarts the circuit run)
   case(106)
@@ -2419,10 +2428,18 @@ contains
    page=7;view_mv=.false.
    if(pv_state==0.and.p_scenario>0)call start_preview(p_scenario)
   case(99)
-   view_k=1+mod(view_k-1+arg+nviews(),nviews())
-   if(.not.view_ok(view_k))view_k=1+mod(view_k-1+arg+nviews(),nviews())
-   if(.not.view_ok(view_k))view_k=1+mod(view_k-1+arg+nviews(),nviews())
-   view_group=group_of(view_k);page=12;call enter_view()
+   ! a to-scale instrument drawing is two full screens (front view, section A-A): step
+   ! through them before moving to the next view
+   if(view_k<=2.and.scene_family(p_scenario)==1.and.((arg>0.and.view_part==1).or.(arg<0.and.view_part==2)))then
+    view_part=view_part+arg
+   else
+    view_part=1
+    view_k=1+mod(view_k-1+arg+nviews(),nviews())
+    if(.not.view_ok(view_k))view_k=1+mod(view_k-1+arg+nviews(),nviews())
+    if(.not.view_ok(view_k))view_k=1+mod(view_k-1+arg+nviews(),nviews())
+    if(arg<0.and.view_k<=2.and.scene_family(p_scenario)==1)view_part=2
+    view_group=group_of(view_k);page=12;call enter_view()
+   end if
   case(93)
    au_on=.not.au_on
   case(94)
