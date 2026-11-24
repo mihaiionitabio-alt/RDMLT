@@ -731,6 +731,8 @@ contains
    end if
    if(pv_state==1.or.pv_bg)then
     steps=pv_steps;if(pv_bg)steps=1500
+   else if(current%ncy==0)then
+    steps=pv_steps        ! the holding stages before cycle 1 run at full speed: curves start at once
    else
     wall_run=wall_run+min(1000d0,max(0d0,wall_ms))/1000
     pv_budget=pv_budget+min(1000d0,max(0d0,wall_ms))*p_speed/1000

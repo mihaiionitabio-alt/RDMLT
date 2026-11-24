@@ -1299,6 +1299,27 @@ contains
   call button(52,p_scenario,'+',1144,y+6,38,30,.not.ui_busy().and.scenario_available(p_scenario))
   call label(trim(message),60,y+60,cyan,1)
  end subroutine
+! @nativefn NR2-M03-F0147
+ function end_text(status,ncy) result(t)
+  ! Why a fault run ended early (shown on the curves card and the full-screen curves).
+  integer,intent(in)::status,ncy
+  character(len=160)::t
+  select case(status)
+  case(3)
+   t='Fault run stopped by the independent monitor'
+  case(4)
+   t='Fault run hit the protocol time limit: the block could not reach its set temperatures'
+  case(5)
+   t='Fault run: software crash, partial data only'
+  case(6)
+   t='Fault run rejected: invalid physical setup'
+  case(7)
+   t='Fault run stopped by the hardware interlock'
+  case default
+   t='Fault run ended early'
+  end select
+  t=trim(t)//' ('//trim(integer_text(ncy))//' of 45 cycles).'
+ end function
 ! @nativefn NR2-M03-F0104
  subroutine plot_preview(x,y,w,h)
   ! Fault (coloured by well role) against the normal reference (purple), both computed by the
@@ -1330,11 +1351,18 @@ contains
     trim(clock_text(replay_t,.false.))//' (precomputed at start-up)'
   else if(stale)then
    st='Settings changed: press Recompute curves.'
+  else if(pv_code==p_scenario.and.pv_state==3.and.pv_fault%status/=1)then
+   st=end_text(pv_fault%status,pv_fault%ncy)
   else
    st='Full model, same seed and profile.'
   end if
   cmp=w<700          ! small card: axes and curves only
   if(.not.cmp)call label(trim(st),x+14,y+8,cyan,1)
+  if(cmp.and.pv_code==p_scenario.and.(pv_state==1.or.pv_state==2))then
+   call label('Computing: cycle '//trim(integer_text(current%ncy))//' / 45',x+14,y+8,cyan,1)
+  else if(cmp.and.pv_code==p_scenario.and.pv_state==3.and.pv_fault%status/=1)then
+   call label('Run ended early: '//trim(integer_text(pv_fault%ncy))//' / 45 cycles (open for details)',x+14,y+8,orange,1)
+  end if
   if(cmp)then
   else if(pv_show_norm)then
    call button(63,0,'Normal: shown',x+w-290,y+4,140,26,.true.)
@@ -2689,7 +2717,7 @@ contains
   end if
   anim_t=anim_t+max(0d0,min(200d0,ms))/1000
   warm_hold=.false.        ! the background cache runs on every page (a real run pauses it)
-  if(page==7.and.pv_state==4)then
+  if(pv_state==4)then        ! replay keeps going on the views and full-screen pages
    replay_t=replay_t+max(0d0,min(200d0,ms))/1000
    if(replay_t>=last_full_elapsed/p_speed)pv_state=3
    dirty=.true.
