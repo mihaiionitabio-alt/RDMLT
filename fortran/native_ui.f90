@@ -1879,7 +1879,7 @@ contains
   f=0;st='Preparing: structures and simulation states'
   if(pre_phase>=1)then
    f=.1d0;st='Preparing: normal reference run (full model)'
-   if(preview_mode.and.pv_state==1)then
+   if(preview_mode.and.pv_bg.and.bg_phase==1)then
     f=.1d0+.9d0*current%ncy/45d0
     st='Preparing: normal reference run (full model), cycle '//trim(integer_text(current%ncy))//' / 45'
    end if
@@ -2212,7 +2212,15 @@ contains
   end if
   bw=max(label_width(trim(l1),1),label_width(trim(l2),1))+24
   bx=width-bw-10;by=height-58
-  call soft_panel(bx,by,bw,50,8,rgba(24,16,30,235))
+  if(page>=0.and.(warm_on.or.pv_bg))then
+   ! background case-curve preparation, shown on every page while it runs
+   by=by-22
+   call soft_panel(bx,by,bw,72,8,rgba(24,16,30,235))
+   call label('Case curves (background) '//trim(integer_text(cached_cases()))//' / 50',bx+12,by+6,orange,1)
+   by=by+22
+  else
+   call soft_panel(bx,by,bw,50,8,rgba(24,16,30,235))
+  end if
   call label(trim(l1),bx+12,by+6,cyan,1)
   call label(trim(l2),bx+12,by+27,ink,1)
  end subroutine
@@ -2680,7 +2688,7 @@ contains
    boot_dt=max(0d0,min(100d0,ms))/1000
   end if
   anim_t=anim_t+max(0d0,min(200d0,ms))/1000
-  warm_hold=page==1.or.page==7.or.page==11.or.page==12
+  warm_hold=.false.        ! the background cache runs on every page (a real run pauses it)
   if(page==7.and.pv_state==4)then
    replay_t=replay_t+max(0d0,min(200d0,ms))/1000
    if(replay_t>=last_full_elapsed/p_speed)pv_state=3

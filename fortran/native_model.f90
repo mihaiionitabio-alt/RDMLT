@@ -48,6 +48,7 @@ module native_model
  ! Scenario preview: a normal reference run and a fault run simulated with the full model
  ! (same seed, telemetry logging skipped) and kept out of the run history.
  logical,save :: preview_mode=.false.
+ integer,save :: bg_code=-1,bg_phase=0
  integer,save :: pv_state=0,pv_code=-1,pv_key(8)=-1,pv_saved_scenario=0,pv_steps=3000
  ! Curves and calls of a preview run (the full record is not kept).
  type curve_t
@@ -722,7 +723,11 @@ contains
    ! The normal reference is computed quickly; the fault run is paced like a real run
    ! (about 30 s at the default acceleration) so its curves grow in front of the reference.
    if(.not.running)then
-    call preview_begin()
+    if(pv_bg)then
+     call bg_begin()
+    else
+     call preview_begin()
+    end if
    end if
    if(pv_state==1.or.pv_bg)then
     steps=pv_steps;if(pv_bg)steps=1500
@@ -792,6 +797,8 @@ contains
   pv_saved_scenario=p_scenario;pv_code=code;preview_mode=.true.
   if(all(key==pv_key))then
    pv_state=2
+  else if(pv_cached(0))then
+   pv_norm=pv_cache(0);pv_key=key;pv_state=2     ! normal reference from the cache
   else
    pv_key=key;pv_state=1
   end if
@@ -809,6 +816,14 @@ contains
 ! @nativefn NR2-M01-F0043
  subroutine preview_filed()
   ! Called by finish_run while previewing: keeps the record out of the history.
+  if(pv_bg)then
+   if(bg_phase==1)then
+    call cache_store(0,curves_of(current))
+   else
+    call cache_store(bg_code,curves_of(current))
+   end if
+   call bg_end();return
+  end if
   if(pv_state==1)then
    pv_norm=curves_of(current);pv_state=2   ! the fault run starts on the next tick
    call cache_store(0,pv_norm)
@@ -835,6 +850,9 @@ contains
 ! @nativefn NR2-M01-F0045
  subroutine cancel_preview()
   if(.not.preview_mode)return
+  if(pv_bg)then
+   call bg_end();return
+  end if
   if(pv_state==1)pv_key=-1
   call preview_end();pv_state=0
  end subroutine
@@ -865,29 +883,51 @@ contains
   if(running.or.preview_mode)return
   key=[p_ext,p_rep,p_copies,p_threshold,p_seed,p_prog,p_fault,1]
   call cache_check(key)
-  pv_bg=.true.;pv_saved_scenario=p_scenario;pv_code=code;preview_mode=.true.
-  if(pv_cached(0).and.all(key==pv_key))then
-   pv_norm=pv_cache(0);pv_state=2
+  ! The background run has its own code and phase and never touches the case shown on the
+  ! case page (pv_state, pv_code, pv_norm, pv_fault), so it can run on every page.
+  pv_bg=.true.;bg_code=code;preview_mode=.true.
+  if(code==0.or..not.pv_cached(0))then
+   bg_phase=1;bg_code=0
   else
-   pv_key=key;pv_state=1
+   bg_phase=2
   end if
-  call preview_begin()
+  call bg_begin()
+ end subroutine
+! @nativefn NR2-M01-F0054
+ subroutine bg_begin()
+  character(len=160)::keep
+  integer::shown
+  keep=message;shown=p_scenario;pv_budget=0;wall_run=0
+  p_scenario=bg_code;if(bg_phase==1)p_scenario=0
+  call begin_run();message=keep;p_scenario=shown
+ end subroutine
+! @nativefn NR2-M01-F0055
+ subroutine bg_end()
+  preview_mode=.false.;running=.false.;current=run_t();pv_bg=.false.;bg_phase=0;bg_code=-1
+  if(allocated(hfr(0)%v))deallocate(hfr(0)%v)
+  if(allocated(hfr(0)%g))deallocate(hfr(0)%g)
+  if(allocated(hfr(0)%c))deallocate(hfr(0)%c)
+  hfr(0)%n=0;hfr(0)%ns=0
  end subroutine
 ! @nativefn NR2-M01-F0052
  subroutine warm_tick()
   ! Background warm-up: compute the next uncached case while the interface is idle.
-  integer::c
+  ! Runs on every page; a real run pauses it. When the run profile changes, the cache is
+  ! invalidated and filled again in the background.
+  integer::c,key(8)
   if(warm_hold.and.pv_bg.and.preview_mode)then
    call cancel_preview();return
   end if
-  if(.not.warm_on.or.warm_hold.or.preview_mode)return
+  if(warm_hold.or.preview_mode.or.running)return
+  key=[p_ext,p_rep,p_copies,p_threshold,p_seed,p_prog,p_fault,1]
+  call cache_check(key)
   if(.not.pv_cached(0))then
-   call start_background(0);return
+   warm_on=.true.;call start_background(0);return
   end if
   do c=warm_next,51
    if(.not.scenario_available(c))cycle
    if(pv_cached(c))cycle
-   warm_next=c;call start_background(c);return
+   warm_on=.true.;warm_next=c;call start_background(c);return
   end do
   warm_on=.false.
  end subroutine
