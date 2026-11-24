@@ -50,7 +50,7 @@ use native_audio
  logical,save::booted=.false.
  real(c_double),save::anim_t=0,anim_acc=0
  integer,save::pv_channel=1
- logical,save::show_fault=.true.,show_structure=.false.
+ logical,save::show_fault=.true.,show_structure=.false.,show_3d=.true.
  integer,save::struct_idx=1
  logical,save::pv_show_norm=.true.,pv_show_fault=.true.
  integer,save::theatre_k=1
@@ -796,12 +796,17 @@ contains
    '2 samples, 3 controls, 4 edge, 5 patch, 6 NTC + blank. Mask overrides scope.',60,y,560,ink)
   if(p_scenario==21)call wrapped_px('Not reproducible: requires an intercalating-dye melt acquisition workflow.',60,y+70,560,orange)
   ! animation and curves
-  if(show_structure.and.scene_family(p_scenario)==2)then
+  if(show_3d)then
+   call case_scene_3d(p_scenario,scene_family(p_scenario),fault_caption(p_scenario,scenario_bank(:,p_scenario)),show_fault, &
+    real(px,c_double),125d0,real(pw,c_double),270d0,anim_t)
+   call button(95,0,'View: 3-D',px+pw-130,131,120,30,.true.)
+  else if(show_structure.and.scene_family(p_scenario)==2)then
    call draw_structure_scene(p_scenario,scenario_bank(:,p_scenario),real(px,c_double),125d0,real(pw,c_double),270d0,anim_t,show_fault,struct_idx)
    call button(61,0,'Next structure',px+pw-160,125+270-40,150,32,.true.)
   else
    call draw_fault_scene(p_scenario,scenario_bank(:,p_scenario),real(px,c_double),125d0,real(pw,c_double),270d0,anim_t,show_fault)
   end if
+  if(.not.show_3d)call button(95,0,'View: 2-D',px+pw-130,131,120,30,.true.)
   if(show_fault)then
    call button(59,0,'Scene: fault',px,402,140,40,.true.)
   else
@@ -1793,7 +1798,7 @@ contains
    if(.not.ui_busy())page=6
   case(21)
    if(.not.ui_busy())then
-    p_scenario=arg;page=7;show_fault=.true.;edit_param=0;call start_preview(arg)
+    call cancel_preview();p_scenario=arg;page=7;show_fault=.true.;edit_param=0;call start_preview(arg)
    end if
   case(50)
    if(.not.ui_busy().and.scenario_available(arg))then
@@ -1848,6 +1853,8 @@ contains
    theatre_pause=.not.theatre_pause
   case(74)
    page=0
+  case(95)
+   show_3d=.not.show_3d
   case(93)
    au_on=.not.au_on
   case(94)

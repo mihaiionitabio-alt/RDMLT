@@ -821,7 +821,9 @@ contains
  end subroutine
 ! @nativefn NR2-M01-F0044
  subroutine preview_end()
-  pv_state=3;preview_mode=.false.;p_scenario=pv_saved_scenario;running=.false.;current=run_t()
+  ! A background cache run never owns the selected scenario, so it is not restored from it.
+  pv_state=3;preview_mode=.false.;running=.false.;current=run_t()
+  if(.not.pv_bg)p_scenario=pv_saved_scenario
   if(pv_bg)then
    pv_bg=.false.;pv_state=0;pv_code=-1
   end if

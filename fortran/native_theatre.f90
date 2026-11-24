@@ -18,7 +18,7 @@ module native_theatre
  use native_structure
  implicit none
  private
- public :: nscene, theatre_title, draw_theatre_scene, theatre_reset, show_tags, theatre_warm, molecule_banner, molecule_icon, molecule_stage, &
+ public :: nscene, theatre_title, draw_theatre_scene, theatre_reset, show_tags, theatre_warm, molecule_banner, molecule_icon, molecule_stage, case_scene_3d, &
   mv_si, mv_yaw, mv_pitch, mv_dist, mv_show, mv_col, mv_spin, mv_cut, mv_open, mv_draw, mv_pick, mv_clear, mv_tick, &
   mv_show_name, mv_col_name
  logical,save :: show_tags=.false.
@@ -35,6 +35,8 @@ module native_theatre
  ! ---- simulation states
  logical,save :: md_init=.false.,sph_init=.false.,heat_init=.false.,enz_init=.false.,opt_init=.false.
  logical,save :: dna_ready=.false.
+ real(c_double),save :: th_side=300
+ integer,save :: th_fault=0
  ! ---- molecule viewer (home banner -> full screen)
  integer,save :: mv_si=1,mv_show=1,mv_col=1,mv_np=0,mv_pk(2)=0,mv_dsi=0
  real(c_double),save :: mv_yaw=.6d0,mv_pitch=-.25d0,mv_dist=150,mv_cut=8
@@ -384,10 +386,10 @@ contains
   ! Open qPCR-style exterior (dark wedge chassis, sloped touchscreen, raised lid housing with
   ! knob and handle) for 12 s, then the housing lifts and the chassis turns to a cut-away.
   if(mod(t,52d0)<12)then
-   call view_begin(x,y,w-300,h,pi-.55d0+.35d0*sin(t*.35d0),-.36d0,620d0,1.15d0)
+   call view_begin(x,y,w-th_side,h,pi-.55d0+.35d0*sin(t*.35d0),-.36d0,620d0,1.15d0)
    woff=[0d0,-95d0,0d0]
   else
-   call view_begin(x,y,w-300,h,yaw,-.42d0,330d0,1.15d0)
+   call view_begin(x,y,w-th_side,h,yaw,-.42d0,merge(230d0,330d0,th_side<=0),1.15d0)
    wsc=.62d0;woff=-wsc*[0d0,96d0,-70d0]
   end if
   call chassis(min(1d0,max(0d0,(mod(t,52d0)-10)/3)),mod(t,52d0)>=12,tb,tlid)
@@ -465,6 +467,9 @@ contains
   call screen_of([-61.25d0+17.5d0*2,26d0+drop,15d0],tx,tz)
   woff=0;wsc=1
   if(show_tags)call seg(tx,tz,x+28+170d0,y+h-250d0,c_orange,1.2d0)
+  if(th_side<=0)then
+   call set_clip(0d0,0d0,1d4,1d4);return    ! compact (case page): no callout, no side panel
+  end if
   call molecule_inset(x+20,y+h-260,340d0,240d0,1,t,'inside the tube: polymerase on DNA (PDB 8UCU)',.false.)
   ! side panel
   px=x+w-290;pw=280
@@ -595,7 +600,7 @@ contains
   ann=0;if(tl>=10)ann=min(1d0,(tl-10)/2)
   ext=0;if(tl>=13)ext=min(1d0,(tl-13)/9)
   call panel(x,y,w,h);call box(x+1,y+1,w-2,h-2,rgba(14,10,18,255))
-  call view_begin(x,y,w-300,h,.5d0+t*.25d0,-.15d0,merge(140d0,95d0,tl>=13),1.0d0)
+  call view_begin(x,y,w-th_side,h,.5d0+t*.25d0,-.15d0,merge(140d0,95d0,tl>=13),1.0d0)
   ! MD solvent particles (dNTPs) first so the DNA is drawn in front where closer
   call md_step(tc,dt)
   do i=1,nmd
@@ -618,7 +623,7 @@ contains
    case(4,6)
     p0=p0+30*sep*dna_dir;rr=1.25d0;cb1=rgba(255,150,200,255);if(k==6)cb1=c_yellow
    case(5)
-    if(tl<13)cycle
+    if(tl<13.or.th_fault==26)cycle          ! case 26: the dNTP never reaches the active site
     p0=p0+(1-ext)*(36*dna_perp+10*dna_dir);rr=1.35d0;cb1=c_green
    case(7)
     if(tl<13)cycle
@@ -628,15 +633,27 @@ contains
     rr=1.9d0;cb1=mix(rgba(150,110,200,255),rgba(90,150,255,255),real(i-st_first(1),c_double)/(st_last(1)-st_first(1)))
     if(k==2)cb1=c_orange
    end select
+   if(th_fault==23.and.(k==1.or.k==2))then  ! case 23: the polymerase loses its fold
+    p0=p0+9*[sin(i*.71d0+t*.9d0),sin(i*1.13d0+t*.7d0),sin(i*.53d0+t*1.1d0)]
+   end if
    p0=p0+amp*[sin(i*1.73d0+t*9.1d0),sin(i*2.31d0+t*8.3d0),sin(i*3.07d0+t*7.7d0)]
    call zsphere(p0,rr,cb1)
   end do
+  if(th_fault==27.and.tl>=13)then             ! case 27: inhibitor molecules crowd the active site
+   do i=1,14
+    p0=kind_centre(1,5)-dna_c+7*[sin(i*2.1d0+t),cos(i*1.7d0+t*.8d0),sin(i*1.3d0-t*.6d0)]
+    call zsphere(p0,2.2d0,rgba(235,60,60,255))
+   end do
+  end if
   ! panel
   kin=0
   do i=1,nmd
    kin=kin+.5d0*sum(mdv(:,i)**2)
   end do
   px=x+w-290;call set_clip(0d0,0d0,1d4,1d4)
+  if(th_side<=0)then
+   call txt(trim(stage)//'   '//trim(num(tc,1))//' C   melted '//trim(num(100*fm,0))//' %',x+10,y+h-24,c_cyan);return
+  end if
   call box(px,y+10,280d0,h-20,rgba(24,15,23,255));call frame_rect(px,y+10,280d0,h-20,c_purple,1d0)
   call txt('Primer / template DNA, PDB 8UCU',px+12,y+22,c_orange)
   call txt(trim(stage),px+12,y+50,c_cyan)
@@ -2114,6 +2131,30 @@ contains
 ! @nativefn NR2-THE-F0159
  subroutine mv_clear()
   mv_np=0;mv_pk=0
+ end subroutine
+! @nativefn NR2-THE-F0160
+ subroutine case_scene_3d(code,fam,caption,fault_on,x,y,w,h,t)
+  ! 3-D view for the case page: the cut-away instrument (hardware, wells and data cases) or the
+  ! real 8UCU primer / template DNA with the polymerase (reagent and molecular cases), drawn
+  ! in the panel without the theatre side panels; the case caption is written on top.
+  integer,intent(in)::code,fam
+  character(len=*),intent(in)::caption
+  logical,intent(in)::fault_on
+  real(c_double),intent(in)::x,y,w,h,t
+  th_side=0;th_fault=0;if(fault_on)th_fault=code
+  if(fam==2)then
+   call scene_3d_dna(x,y,w,h,t,.033d0)
+  else
+   call scene_3d_instrument(x,y,w,h,12+mod(t,40d0))
+  end if
+  th_side=300;th_fault=0
+  call set_clip(0d0,0d0,1d4,1d4)
+  if(fault_on.and.code>0)then
+   call txt(trim(caption),x+10,y+8,c_orange)
+  else
+   call txt('Normal run (no fault)',x+10,y+8,c_cyan)
+  end if
+  call frame_rect(x,y,w,h,c_purple,1d0)
  end subroutine
 ! @nativefn NR2-THE-F0134
  subroutine theatre_warm()

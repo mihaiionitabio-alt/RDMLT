@@ -19,7 +19,7 @@ module native_anim
  implicit none
  private
  public :: anim_helix_banner, draw_fault_scene, scene_family, draw_structure_scene, draw_cycler
- public :: mix, tcol, box, disc, glow, ball, seg, dash, arrow, frame_rect, txt, num, set_clip, example_tm
+ public :: mix, tcol, box, disc, glow, ball, seg, dash, arrow, frame_rect, txt, num, set_clip, example_tm, fault_caption
  type, public :: cycler_t
   real(c_double) :: tz(2)=25,tsens(2)=25,tlid=25,tsink=25,duty(2)=0,lidduty=0,edge=0
   real(c_double) :: led=1,glow(16)=0,liquid(16)=1,lift=0,lidopen=0,misalign=0,seal=1,autofl=0,xtalk=0
