@@ -31,7 +31,7 @@ use native_audio
  character(len=24),save::edit_buffer=''
  logical,save::show_group(5,maxruns)=.true.,show_name(maxw,maxruns)=.true.
  ! Voice commands as in MISSY: wake word "Computer", then a command from a short grammar.
- logical,save::vc_on=.false.,vc_alert=.false.
+ logical,save::vc_on=.false.,vc_alert=.false.,help_on=.false.
  character(len=200),save::vc_buf='',vc_heard='',vc_reply=''
  integer,save::vc_n=0,vc_pack=0     ! English pack: 0 not checked 1 checking 2 downloading 3 ready 4 not offered 5 failed
  logical,save::dirty=.true.,dragging=.false.,mv_drag=.false.
@@ -662,6 +662,73 @@ contains
    call play_cue('voiceStop')
   end if
  end subroutine
+! @nativefn NR2-M03-F0125H
+ subroutine draw_overlays()
+  ! The "?" help switch in the bottom-right corner of every page and, when open, the panel with
+  ! every voice command, key and mouse action.
+  if(page<0)return
+  if(help_on)call draw_help()
+  call button(122,0,'?',width-60,height-60,48,48,.true.)
+ end subroutine
+ subroutine draw_help()
+  character(len=90),parameter::vcmd(26)=[character(len=90):: &
+   'Computer                      wake word: "Computer standing by"', &
+   'Computer help                 this list (also spoken)', &
+   'Computer close help           close this panel', &
+   'Computer status report        run, cycle, block and lid, runs filed', &
+   'Computer start run            start the virtual PCR (profile or selection)', &
+   'Computer show live run        open the run that is acquiring', &
+   'Computer stop run             stop and file the current run', &
+   'Computer show results         results table of the filed runs', &
+   'Computer next run             next filed run', &
+   'Computer previous run         previous filed run', &
+   'Computer check the controls   PC, NTC, extraction blank, verdict', &
+   'Computer target channel       target gene curves (FAM)', &
+   'Computer endogenous channel   endogenous gene curves (YY)', &
+   'Computer temperature          block temperature chart', &
+   'Computer zoom in / zoom out   chart magnification', &
+   'Computer reset view           chart zoom and position', &
+   'Computer scenarios            qPCR scenario catalogue', &
+   'Computer references           sources and references', &
+   'Computer animation theatre    full-screen scenes', &
+   'Computer profile              configure profile', &
+   'Computer download             RDMLt file of the selected run', &
+   'Computer go home              home page', &
+   'Computer go back              one level back', &
+   'Computer sound on / sound off interface sounds', &
+   'Computer red alert / cancel red alert', &
+   'Computer stop listening       microphone off']
+  character(len=90),parameter::keys(9)=[character(len=90):: &
+   'Mic / Voice commands button   microphone on or off (every page)', &
+   '? button, F1 or ?             open / close this help', &
+   'Esc                           close help; otherwise home', &
+   'Enter                         start screen: enter the app', &
+   'Space                         stop the run that is acquiring', &
+   'Left / Right arrows           previous / next theatre scene', &
+   'Mouse wheel                   zoom live chart and molecules', &
+   'Drag                          pan the chart, rotate molecules', &
+   'Click a card or view          open it; Back goes one level up']
+  integer::x,y,w,h,i
+  character(len=60)::pk
+  w=min(width-80,1500);h=min(height-90,880);x=(width-w)/2;y=40
+  call soft_panel(x,y,w,h,14,rgba(16,10,20,248))
+  call card_frame(x,y,w,h,orange,3)
+  call hotspot(122,0,x,y,w,h)                 ! click anywhere on the panel to close it
+  call label('Help: commands',x+24,y+16,orange,2)
+  call label('Voice: switch the microphone on, then say "Computer" followed by the command. Click the panel or press Esc to close.', &
+   x+24,y+56,ink,1)
+  call label('Voice commands',x+24,y+92,cyan,1)
+  do i=1,size(vcmd)
+   call label(trim(vcmd(i)),x+24+merge(0,w/2,i<=13),y+120+mod(i-1,13)*26,ink,1)
+  end do
+  call label('Keys, buttons and mouse',x+24,y+480,cyan,1)
+  do i=1,size(keys)
+   call label(trim(keys(i)),x+24+merge(0,w/2,i<=5),y+508+mod(i-1,5)*26,ink,1)
+  end do
+  pk=pack_text()
+  if(len_trim(pk)>0)call label(trim(pk),x+24,y+h-60,purple,1)
+  call label('Answers use the MISSY Calm v1 voice; other replies use a local English voice.',x+24,y+h-34,purple,1)
+ end subroutine
 ! @nativefn NR2-M03-F0125P
  subroutine voice_pack()
   ! As in MISSY: check the browser's on-device English speech pack (en-US, processed locally) and
@@ -757,8 +824,10 @@ contains
    vc_alert=.true.;call play_cue('redalert')
   else if(has('stop listening').or.has('voice off').or.has('voice control off').or.has('voice commands off'))then
    call voice_toggle()
+  else if(has('close help').or.has('hide help'))then
+   help_on=.false.;call play_cue('commandClose')
   else if(has('help').or.has('what can i say').or.has('commands'))then
-   call play_tone('map003')
+   help_on=.true.;call play_tone('map003')
    call speak('Say Computer, then: status report; start run; show live run; stop run; show results; '// &
     'next run; previous run; check the controls; target channel; endogenous channel; temperature; '// &
     'zoom in; zoom out; reset view; scenarios; references; animation theatre; go home; go back; '// &
@@ -922,6 +991,8 @@ contains
    c='graphsPage'
   case(90)
    c='enter'
+  case(122)
+   c='commandOpen';if(help_on)c='commandClose'
   case(1,74)
    c='consoleClose';if(page==2.or.page==4.or.page==5.or.page==6.or.page==1)c='workspaceBack'
   case(106,97,99)
@@ -2335,11 +2406,11 @@ contains
   if(page/=7.and.page/=11.and.page/=12.and.preview_mode.and..not.pv_bg)call cancel_preview()   ! background cache runs continue
   if(page==-2)then
    call allocate_frame(width,height,rgba(10,7,12,255));call draw_preload();call draw_memory_stats()
-   ptr=c_loc(pixels(1));dirty=.false.;return
+   call draw_overlays();ptr=c_loc(pixels(1));dirty=.false.;return
   end if
   if(page==-1)then
    call allocate_frame(width,height,bg);call draw_boot();call draw_memory_stats()
-   ptr=c_loc(pixels(1));dirty=.false.;return
+   call draw_overlays();ptr=c_loc(pixels(1));dirty=.false.;return
   end if
   if(page==9)then
    call allocate_frame(width,height,rgba(10,7,12,255))
@@ -2361,7 +2432,7 @@ contains
    call mic_button(width-940,16,140)
    call draw_theatre_scene(theatre_k,16d0,78d0,real(width-32,c_double),real(height-90,c_double),theatre_t,theatre_dt)
    call draw_memory_stats()
-   ptr=c_loc(pixels(1));dirty=.false.;return
+   call draw_overlays();ptr=c_loc(pixels(1));dirty=.false.;return
   end if
   ! Two device pixels per logical pixel: a full-screen window 1920 wide renders 3840 x 2160 (4K).
   ! (A higher scale on small windows was too slow for the 2-D drawings in the browser.)
@@ -2370,7 +2441,7 @@ contains
    call allocate_frame(width,height,rgba(10,7,13,255))
    call draw_view_menu()
    call draw_memory_stats()
-   ptr=c_loc(pixels(1));dirty=.false.;return
+   call draw_overlays();ptr=c_loc(pixels(1));dirty=.false.;return
   end if
   if(page==12.and.view_mv)then
    ! molecule tools on a full-screen 3D molecule view
@@ -2390,7 +2461,7 @@ contains
    call button(99,1,'View >',x0,10,90,42,.true.);x0=x0+95
    call button(1,0,'Back',x0,10,90,42,.true.);x0=x0+95
    call mic_button(x0,10,120)
-   ptr=c_loc(pixels(1));dirty=.false.;return
+   call draw_overlays();ptr=c_loc(pixels(1));dirty=.false.;return
   end if
   if(page==12)then
    call allocate_frame(width,height,rgba(10,7,13,255))
@@ -2415,7 +2486,7 @@ contains
    call button(99,1,'>',width-365,10,50,42,.true.)
    call button(1,0,'Back',width-310,10,130,42,.true.)
    call mic_button(width-170,10,150)
-   ptr=c_loc(pixels(1));dirty=.false.;return
+   call draw_overlays();ptr=c_loc(pixels(1));dirty=.false.;return
   end if
   if(page==10)then
    call allocate_frame(width,height,rgba(10,7,13,255))
@@ -2425,7 +2496,7 @@ contains
    call mic_button(x0,16,120)
    call mv_draw(16d0,70d0,real(width-32,c_double),real(height-80,c_double))
    call draw_memory_stats()
-   ptr=c_loc(pixels(1));dirty=.false.;return
+   call draw_overlays();ptr=c_loc(pixels(1));dirty=.false.;return
   end if
   shown_cycle=current%ncy
   if(.not.ui_busy().and.selected>0)shown_cycle=history(selected)%ncy
@@ -2554,7 +2625,7 @@ contains
    call button(11,0,'Download selected RDMLt',width-300,132,260,36,selected>0)
   end if
   call draw_memory_stats()
-  ptr=c_loc(pixels(1));dirty=.false.
+  call draw_overlays();ptr=c_loc(pixels(1));dirty=.false.
  end function
 ! @nativefn NR2-M03-F0120
  function stats_lines(n) result(l)
@@ -2730,6 +2801,8 @@ contains
    zoom=1;pan=0
   case(120)
    call voice_toggle()
+  case(122)
+   help_on=.not.help_on
   case(20)
    if(.not.ui_busy())page=6
   case(21)
@@ -3025,6 +3098,12 @@ contains
    end if
    if(page==9.and.value==37)call action(70,0)
    if(page==9.and.value==39)call action(71,0)
+   if(help_on.and.(value==27.or.value==112.or.value==191))then
+    help_on=.false.;dirty=.true.;return
+   end if
+   if(value==112.or.value==191)then
+    help_on=.true.;dirty=.true.;return
+   end if
    if(value==27)page=0
    if(value==32.and.ui_busy())call finish_run(2)
   case(5)
